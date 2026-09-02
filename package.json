@@ -1,0 +1,9 @@
+{
+  "name": "mangarelief",
+  "private": true,
+  "description": "Root helper scripts, so a build that starts at the repository root can still build and deploy the frontend in web/.",
+  "scripts": {
+    "build": "npm --prefix web ci && npm --prefix web run build",
+    "deploy": "npx wrangler deploy --config web/wrangler.jsonc"
+  }
+}
