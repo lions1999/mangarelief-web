@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
 import cv2
+import httpx
 import numpy as np
 
 from engine.color_utils import classify_spot_pixels, downsample_for_analysis
@@ -150,12 +151,30 @@ def root():
 
 
 @app.get("/healthz")
-def healthz():
-    return {
+def healthz(deep: bool = False):
+    """Liveness, plus an optional database round-trip.
+
+    `?deep=true` actually queries the store. Without it a misconfigured or
+    unreachable database only shows up when a real job fails, which is a slow
+    and confusing way to find out.
+    """
+    body = {
         "status": "ok",
         "backend": "supabase" if settings.use_supabase else "local",
         "queue": runner.pending,
+        "version": app.version,
     }
+    if deep:
+        try:
+            get_store().list_expired(utcnow(), limit=1)
+            body["database"] = "ok"
+        except httpx.HTTPStatusError as exc:
+            body["status"] = "degraded"
+            body["database"] = f"{exc.response.status_code}: {exc.response.text[:300]}"
+        except Exception as exc:  # noqa: BLE001 - surfacing the reason is the point
+            body["status"] = "degraded"
+            body["database"] = f"{type(exc).__name__}: {exc}"[:300]
+    return body
 
 
 @app.post("/api/analyze", response_model=AnalysisResult)
@@ -365,7 +384,17 @@ def cleanup(x_cleanup_token: str = Header(default="")):
     store, storage = get_store(), get_storage()
     now = utcnow()
     jobs_cleaned = files_deleted = 0
-    for record in store.list_expired(now):
+
+    try:
+        expired = store.list_expired(now)
+    except httpx.HTTPStatusError as exc:
+        # A bare 500 here costs a round-trip through the CI logs to learn
+        # nothing; the upstream status and message say what actually broke.
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+                            f"database query failed: {exc.response.status_code} "
+                            f"{exc.response.text[:300]}") from exc
+
+    for record in expired:
         try:
             files_deleted += storage.delete_prefix(record["id"])
         except Exception:

@@ -85,6 +85,10 @@ r = client.get("/healthz")
 check("healthz ok", r.status_code == 200 and r.json()["status"] == "ok", r.text[:120])
 check("healthz reports local backend", r.json()["backend"] == "local")
 
+r = client.get("/healthz?deep=true")
+check("healthz deep: database raggiungibile",
+      r.status_code == 200 and r.json().get("database") == "ok", r.text[:200])
+
 # ----------------------------------------------------------------- analyze
 r = client.post("/api/analyze", files={"image": ("panel.png", io.BytesIO(IMG), "image/png")})
 check("analyze 200", r.status_code == 200, r.text[:200])
