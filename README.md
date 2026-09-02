@@ -154,10 +154,18 @@ the UI says so rather than hiding it.
 (Hugging Face Spaces was the original target, but since July 2026 Docker Spaces
 require a paid plan, so the free path there is gone.)
 
-**Frontend → Cloudflare Pages.** Root directory `web`, build command
-`npm run build`, output directory `dist`, and one environment variable:
-`VITE_API_URL` pointing at the Space. Vite inlines it at build time, so changing
-it needs a redeploy, not just a restart.
+**Frontend → Cloudflare.** Two flows exist in the dashboard and both work:
+
+- *Workers* ("Create an app" → import repository): root directory `web`, build
+  command `npm run build`, deploy command `npx wrangler deploy`. It deploys via
+  `web/wrangler.jsonc`, an assets-only Worker — no server code, just the built
+  SPA.
+- *Pages* (Workers & Pages → Pages → Connect to Git): root directory `web`,
+  build command `npm run build`, output directory `dist`. No config file needed.
+
+Either way set `VITE_API_URL` as a **build** variable, pointing at the Cloud Run
+URL. Vite inlines it at build time, so changing it needs a rebuild, not just a
+restart.
 
 **Nightly cleanup** needs `API_URL` and `CLEANUP_TOKEN` as repository secrets;
 the same `CLEANUP_TOKEN` goes into the backend's environment.

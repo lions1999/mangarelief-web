@@ -1,0 +1,17 @@
+{
+  // Cloudflare's "Workers Builds" flow deploys with `npx wrangler deploy`, which
+  // needs to be told what to publish. This is an assets-only Worker: no server
+  // code, just the built SPA.
+  //
+  // Set "Root directory" to `web` in the build settings so this file — and the
+  // package.json next to it — are what the build sees.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mangarelief-web",
+  "compatibility_date": "2026-09-02",
+  "assets": {
+    "directory": "./dist",
+    // The app is a single page with no router today, but this keeps any future
+    // deep link from 404ing instead of loading the app.
+    "not_found_handling": "single-page-application"
+  }
+}
