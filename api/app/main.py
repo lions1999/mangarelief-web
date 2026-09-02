@@ -26,7 +26,7 @@ from .analysis import analyze, filtered_gray, resolve_params
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import QueueFull, runner
-from .limits import clamp_to_anonymous_tier, hash_ip, limiter
+from .limits import clamp_to_anonymous_tier, hash_ip, limiter, turnstile_ok
 from .schemas import (AnalysisResult, Artifact, JobCreated, JobParams, JobStatus,
                       JobView)
 from .storage import get_storage
@@ -209,6 +209,7 @@ def create_job(
     response: Response,
     image: UploadFile = File(...),
     params: Optional[str] = Form(None),
+    turnstile_token: Optional[str] = Form(None),
 ):
     p = parse_params(params)
     if p.mode.value not in settings.allowed_modes:
@@ -216,6 +217,9 @@ def create_job(
                             f"mode '{p.mode.value}' is not available on the web service")
 
     ip = client_ip(request)
+    if not turnstile_ok(turnstile_token or "", ip):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            "captcha verification failed, reload and try again")
     ip_key = hash_ip(ip)
     allowed, retry_after = limiter.check(ip_key)
     if not allowed:
@@ -277,7 +281,14 @@ def get_job(job_id: str, request: Request):
 
 
 @app.get("/api/jobs/{job_id}/artifacts/{kind}")
-def download_artifact(job_id: str, kind: str):
+def download_artifact(job_id: str, kind: str, preview: bool = False):
+    """Stream one artifact.
+
+    `preview=true` serves the same bytes for the in-page 3D viewer without
+    counting as a download: the retention rule is "24h after the user takes
+    the file", and looking at it in the browser is not taking it. It also
+    keeps the free preview / paid download split of the roadmap meaningful.
+    """
     if kind not in CONTENT_TYPES:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown artifact kind")
 
@@ -299,7 +310,17 @@ def download_artifact(job_id: str, kind: str):
 
     data = get_storage().get(artifact["key"])
 
-    # Retention: the first download shortens the file's life to 24h.
+    if preview:
+        return Response(
+            content=data,
+            media_type=CONTENT_TYPES[kind],
+            headers={
+                "Content-Disposition": f'inline; filename="{artifact["filename"]}"',
+                "X-MangaRelief-Expires-At": record.get("expires_at") or "",
+            },
+        )
+
+    # Retention: the first real download shortens the file's life to 24h.
     now = utcnow()
     fields = {"expires_at": iso(shortened_expiry(expires, now))}
     if not record.get("downloaded_at"):

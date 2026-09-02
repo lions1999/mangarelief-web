@@ -115,6 +115,18 @@ def stl_is_valid(blob: bytes) -> bool:
     return n > 0 and len(blob) == 84 + n * 50
 
 
+# ------------------------------------------------------------ preview fetch
+before = client.get(f"/api/jobs/{job_id}").json()
+pv = client.get(f"/api/jobs/{job_id}/artifacts/stl?preview=true")
+check("preview 200", pv.status_code == 200, pv.status_code)
+check("preview: served inline", "inline" in pv.headers.get("content-disposition", ""),
+      pv.headers.get("content-disposition"))
+after_pv = client.get(f"/api/jobs/{job_id}").json()
+check("preview does not count as a download",
+      after_pv.get("downloaded_at") is None
+      and after_pv["expires_at"] == before["expires_at"],
+      (after_pv.get("downloaded_at"), after_pv["expires_at"] == before["expires_at"]))
+
 for kind, valid in (("stl", stl_is_valid),
                     ("3mf", lambda b: b[:2] == b"PK" and len(b) > 1000)):
     d = client.get(f"/api/jobs/{job_id}/artifacts/{kind}")

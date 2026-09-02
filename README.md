@@ -4,8 +4,8 @@ Turns 2D artwork into terraced, 3D-printable meshes (STL + Bambu Studio 3MF)
 over HTTP. This is the web half of **MangaRelief**; the desktop application and
 the generation engine live in [MangaRelief](https://github.com/lions1999/MangaRelief).
 
-> **Status: phase 1 — backend only.** Upload an image with `curl`, poll the job,
-> download the model. The frontend and the 3D preview are phase 2.
+> **Status: phase 2.** A browser flow with an orbitable 3D preview, on top of
+> the phase 1 API. Accounts, quota and payments are still ahead.
 
 ---
 
@@ -32,6 +32,12 @@ picker or physical presets that only make sense inside the desktop UI.
 
 Interactive docs at `/docs` once running.
 
+### `POST /api/mockup`
+Multipart: `image` (file), optional `params` (JSON). Returns a small PNG of how
+the image will be classified. Spot Colour cannot be tuned without it — accents
+and coverage are unjudgeable as numbers — and it is cheap enough to call on
+every slider move (debounced). Phase 4 replaces it with a client-side port.
+
 ### `POST /api/analyze`
 Multipart: `image` (file), optional `params` (JSON). Returns the analysis the
 desktop UI performs when an image is loaded — halftone percentage, colour mode,
@@ -56,6 +62,9 @@ bar shows), plus artifact links and the expiry timestamp once finished.
 
 ### `GET /api/jobs/{id}/artifacts/{stl|3mf}`
 Streams the file. **The first download shortens the retention window to 24h.**
+Add `?preview=true` for the in-page viewer: same bytes, served inline, and it
+does *not* start the countdown — looking at a model in the browser is not taking
+it.
 
 ### `POST /api/internal/cleanup`
 Deletes expired artifacts. Requires the `X-Cleanup-Token` header; called nightly
@@ -99,9 +108,15 @@ of the address is stored, never the address), one concurrent generation.
 ## Running it
 
 ```bash
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8080     # SQLite + ./.data, no cloud account needed
-python tests/smoke_api.py                     # end-to-end: both modes, limits, retention, cleanup
+# backend
+pip install -r api/requirements.txt
+(cd api && uvicorn app.main:app --reload --port 8080)   # SQLite + ./.data, no cloud account
+python api/tests/smoke_api.py                           # end-to-end API suite
+
+# frontend
+cd web && npm install
+echo "VITE_API_URL=http://localhost:8080" > .env
+npm run dev
 ```
 
 With no `SUPABASE_URL`/`SUPABASE_SERVICE_KEY` the service runs in local mode:
@@ -116,7 +131,24 @@ docker run -p 8080:8080 --env-file .env mangarelief-api
 ```
 
 The image uses `opencv-python-headless`, so it needs no GUI libraries. It listens
-on `$PORT`, which is what Cloud Run and Hugging Face Spaces inject.
+on `$PORT`, which is what Cloud Run and Hugging Face Spaces inject, and defaults
+`LOCAL_DATA_DIR` to `/data`.
+
+### Deploying
+
+**Backend → Hugging Face Spaces.** `.github/workflows/deploy-space.yml` pushes
+the Dockerfile plus `api/` to a Space on every change. It needs two repository
+secrets: `HF_TOKEN` (a write token) and `HF_SPACE` (`user/space-name`). Without
+them the job skips instead of failing. A Space sleeps when idle, so the first
+request of the day takes a few seconds — the UI says so rather than hiding it.
+
+**Frontend → Cloudflare Pages.** Root directory `web`, build command
+`npm run build`, output directory `dist`, and one environment variable:
+`VITE_API_URL` pointing at the Space. Vite inlines it at build time, so changing
+it needs a redeploy, not just a restart.
+
+**Nightly cleanup** needs `API_URL` and `CLEANUP_TOKEN` as repository secrets;
+the same `CLEANUP_TOKEN` goes into the backend's environment.
 
 ### Supabase
 
@@ -133,16 +165,24 @@ See `supabase/README.md` for the queries that confirm it landed.
 ## Architecture
 
 ```
-app/
-  main.py       FastAPI routes: analyze, create, poll, download, cleanup
-  schemas.py    Pydantic contract — the ranges the desktop spinboxes used to enforce
-  analysis.py   Auto parameters, mirroring what the desktop UI derives on load
-  jobs.py       Single-worker background runner around engine.generate
-  store.py      The generations table: SQLite locally, PostgREST on Supabase
-  storage.py    Artifacts: local directory or Supabase Storage
-  limits.py     Rate limit, free-tier caps, IP hashing
-  imaging.py    Safe decoding of untrusted uploads
-engine/         Vendored from the desktop repo — see ENGINE_SOURCE
+api/
+  app/
+    main.py       Routes: analyze, mockup, create, poll, download, cleanup
+    schemas.py    Pydantic contract — the ranges the desktop spinboxes enforced
+    analysis.py   Auto parameters, mirroring what the desktop UI derives on load
+    jobs.py       Single-worker background runner around engine.generate
+    store.py      The generations table: SQLite locally, PostgREST on Supabase
+    storage.py    Artifacts: local directory or Supabase Storage
+    limits.py     Rate limit, free-tier caps, IP hashing, Turnstile
+    imaging.py    Safe decoding of untrusted uploads
+  engine/         Vendored from the desktop repo — see api/ENGINE_SOURCE
+  tests/          The end-to-end suite CI runs
+web/
+  src/api.ts              The only module that knows the API exists
+  src/components/         Dropzone, params, spot panel, viewer, progress
+  src/components/ModelViewer.tsx   three.js STL viewer
+supabase/         Schema as migrations
+Dockerfile        Backend image, at the root because Spaces builds from there
 ```
 
 ### About `engine/`
@@ -165,15 +205,22 @@ that is what makes this service possible at all.
 - **Downloads stream through the API** rather than via signed URLs, because the
   API is what enforces expiry. Fine at this scale, worth revisiting later.
 - **Cold starts are slow.** Scaling to zero plus heavy scientific imports means
-  the first request after idling takes several seconds; tell the user rather
+  the first request after idling takes several seconds; the UI says so rather
   than hiding it.
+- **The STL preview is the full mesh** — a few MB over the wire. Fine on a
+  desktop, heavy on a phone; a decimated preview mesh is the fix when it starts
+  to matter.
+- **Turnstile is optional.** Set `VITE_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET`
+  to switch it on. Verification fails *open* on a Cloudflare outage: a captcha
+  being down should slow abuse, not take the service offline.
 
 ---
 
 ## Roadmap
 
-1. ~~Backend API~~ ← you are here
-2. Frontend (Vite + React), Three.js preview, public demo
+1. ~~Backend API~~
+2. ~~Frontend (Vite + React), Three.js preview~~ ← you are here; the public
+   demo needs the deploy secrets above
 3. Accounts, roles, quota (Supabase Auth)
 4. Client-side mockup for Spot Color tuning
 5. Payments

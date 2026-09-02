@@ -1,0 +1,256 @@
+:root {
+  --bg: #0d0e11;
+  --panel: #16181d;
+  --panel-2: #1d2027;
+  --line: #292d36;
+  --ink: #e8e9ec;
+  --muted: #9aa0ad;
+  --accent: #e0393f;
+  --accent-ink: #fff;
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+
+body { margin: 0; }
+
+.app {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+
+header p {
+  margin: 6px 0 26px;
+  color: var(--muted);
+  max-width: 60ch;
+}
+
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+}
+
+.column { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.panel h2 {
+  margin: 0 0 14px;
+}
+
+/* A second heading inside a panel follows body text: it needs air above it. */
+.panel h2 ~ h2 {
+  margin-top: 26px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.result { position: sticky; top: 20px; }
+
+/* ------------------------------------------------------------ dropzone */
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: 34px 16px;
+  border: 1.5px dashed var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.dropzone:hover, .dropzone.over { border-color: var(--accent); background: #21242c; }
+.dropzone.disabled { opacity: 0.5; pointer-events: none; }
+.dropzone span { color: var(--muted); font-size: 13px; }
+
+/* --------------------------------------------------------------- modes */
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 520px) { .modes { grid-template-columns: 1fr; } }
+
+.mode {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  padding: 13px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+.mode:hover:not(:disabled) { border-color: #3a4050; }
+.mode.active { border-color: var(--accent); background: #241b1d; }
+.mode span { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.mode:disabled { opacity: 0.55; cursor: default; }
+
+/* -------------------------------------------------------------- fields */
+.field { display: block; margin: 16px 0; }
+.field > span {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  margin-bottom: 7px;
+}
+.field em { font-style: normal; color: var(--muted); font-variant-numeric: tabular-nums; }
+.field input[type="range"] { width: 100%; accent-color: var(--accent); }
+.field select {
+  width: 100%;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font: inherit;
+}
+
+.hint { color: var(--muted); font-size: 12.5px; line-height: 1.5; margin: 10px 0 0; }
+.field-error { color: #ff8189; font-size: 13px; margin: 10px 0 0; }
+
+/* ------------------------------------------------------------- accents */
+.accents { display: flex; align-items: center; gap: 10px; }
+.swatch {
+  width: 42px;
+  height: 42px;
+  border-radius: 9px;
+  border: 2px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 19px;
+  cursor: pointer;
+}
+.swatch.active { border-color: var(--accent); }
+.chip {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  margin-left: 4px;
+  vertical-align: -2px;
+}
+.link {
+  background: none;
+  border: 0;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12.5px;
+}
+
+/* -------------------------------------------------------------- mockup */
+.mockup { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.mockup figure { margin: 0; min-width: 0; }
+.mockup canvas, .mockup img, .placeholder {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  display: block;
+  background: var(--panel-2);
+}
+.placeholder { aspect-ratio: 3 / 4; }
+.mockup canvas.pickable { cursor: crosshair; }
+.mockup figcaption { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
+
+/* ------------------------------------------------------------ progress */
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.35s ease;
+}
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+
+/* -------------------------------------------------------------- viewer */
+.viewer { position: relative; }
+.viewer-canvas {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: #111214;
+}
+.viewer-canvas canvas { display: block; width: 100% !important; height: 100% !important; }
+.viewer-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+.viewer-overlay.error { color: #ff8189; padding: 20px; text-align: center; }
+.viewer-hint { color: var(--muted); font-size: 11.5px; margin-top: 7px; text-align: center; }
+
+/* ----------------------------------------------------------- downloads */
+.downloads { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+.primary {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  width: 100%;
+}
+.downloads .primary { width: auto; flex: 1 1 160px; }
+.primary em { font-style: normal; font-weight: 400; opacity: 0.8; font-size: 12px; }
+.primary:disabled { opacity: 0.55; cursor: default; }
+
+.turnstile { margin-bottom: 14px; }
+
+footer {
+  margin-top: 34px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}

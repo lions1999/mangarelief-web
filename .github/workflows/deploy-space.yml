@@ -1,0 +1,64 @@
+# Publish the backend to a Hugging Face Space (Docker SDK).
+#
+# A Space is its own git repo, and it builds from the root of what you push.
+# So this pushes a synthesised tree — the Dockerfile, api/, and a Space README
+# carrying the front matter HF needs — instead of the whole GitHub repo, which
+# would drag the frontend and the tests into the image context.
+name: deploy-space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "Dockerfile"
+      - ".github/workflows/deploy-space.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Skip silently on forks or before the secrets exist.
+    if: github.repository_owner != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the Space tree
+        run: |
+          set -euo pipefail
+          mkdir -p space
+          cp -r api Dockerfile space/
+          cat > space/README.md <<'MD'
+          ---
+          title: MangaRelief API
+          emoji: 🖨️
+          colorFrom: gray
+          colorTo: red
+          sdk: docker
+          app_port: 8080
+          pinned: false
+          ---
+
+          Backend for [MangaRelief](https://github.com/lions1999/mangarelief-web).
+          Turns 2D artwork into terraced, 3D-printable meshes (STL + Bambu 3MF).
+
+          Deployed automatically from `main`; see the repository for the API docs.
+          MD
+
+      - name: Push to the Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE: ${{ secrets.HF_SPACE }}   # e.g. lions1999/mangarelief-api
+        run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ] || [ -z "${HF_SPACE:-}" ]; then
+            echo "HF_TOKEN / HF_SPACE not set — skipping deploy." && exit 0
+          fi
+          cd space
+          git init -q -b main
+          git config user.email "actions@github.com"
+          git config user.name "GitHub Actions"
+          git add -A
+          git commit -q -m "Deploy ${GITHUB_SHA::8}"
+          # Force push: the Space mirrors main, it has no history of its own.
+          git push -f "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" main

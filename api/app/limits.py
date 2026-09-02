@@ -59,3 +59,27 @@ def clamp_to_anonymous_tier(params) -> list[str]:
         notes.append(f"max_dim lowered to {settings.anon_max_dim_mm} mm (free tier)")
         params.max_dim = settings.anon_max_dim_mm
     return notes
+
+
+TURNSTILE_VERIFY = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+def turnstile_ok(token: str, ip: str) -> bool:
+    """Verify a Turnstile token. Always true when no secret is configured.
+
+    A network failure against Cloudflare fails open on purpose: a captcha
+    outage should slow abuse down, not take the whole service offline.
+    """
+    if not settings.turnstile_secret:
+        return True
+    if not token:
+        return False
+    try:
+        import httpx
+
+        res = httpx.post(TURNSTILE_VERIFY, timeout=10.0,
+                         data={"secret": settings.turnstile_secret,
+                               "response": token, "remoteip": ip})
+        return bool(res.json().get("success"))
+    except Exception:
+        return True

@@ -48,6 +48,9 @@ class Settings:
     anon_rate_limit: int = field(default_factory=lambda: _env_int("ANON_RATE_LIMIT", 5))
     anon_rate_window_s: int = field(default_factory=lambda: _env_int("ANON_RATE_WINDOW_S", 3600))
     ip_hash_salt: str = field(default_factory=lambda: _env("IP_HASH_SALT", "mangarelief-dev-salt"))
+    # Cloudflare Turnstile. Unset = no challenge, which is what local
+    # development and the first deploy run with.
+    turnstile_secret: str = field(default_factory=lambda: _env("TURNSTILE_SECRET"))
 
     # --- Generation limits for the anonymous tier ------------------------
     # Draft resolution only: an Ultra run peaks well past 1 GB of RAM, which
