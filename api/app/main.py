@@ -274,7 +274,7 @@ def create_job(
             "area to detect one, so pass spot_accents explicitly")
 
     job_id = uuid.uuid4().hex
-    get_store().insert({
+    record = {
         "id": job_id,
         "created_at": iso(utcnow()),
         "user_id": None,                # phase 3: the authenticated user
@@ -290,7 +290,20 @@ def create_job(
         "artifacts": [],
         "expires_at": iso(default_expiry()),
         "downloaded_at": None,
-    })
+    }
+
+    try:
+        get_store().insert(record)
+    except httpx.HTTPStatusError as exc:
+        # The row must exist before the job starts, so a database refusal has
+        # to fail the request — but with the reason attached. A bare 500 here
+        # costs a trip through the platform logs to learn nothing; the most
+        # common cause is the anon key instead of the service-role one, which
+        # row level security rejects on insert while still allowing reads.
+        log.error("insert refused: %s %s", exc.response.status_code, exc.response.text[:300])
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+                            f"could not record the job: {exc.response.status_code} "
+                            f"{exc.response.text[:300]}") from exc
 
     try:
         runner.submit(job_id, rgb, p.mode.value, engine_kwargs)
