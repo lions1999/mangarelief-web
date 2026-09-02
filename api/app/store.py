@@ -128,7 +128,13 @@ class SqliteStore:
 
 
 class SupabaseStore:
-    """PostgREST client for the same table."""
+    """PostgREST client for the same table.
+
+    Every query goes through httpx's `params`, never an f-string URL: an ISO
+    timestamp ends in `+00:00`, and a raw `+` in a query string means a space.
+    Interpolated by hand, PostgREST receives a malformed date and answers 400 —
+    which is exactly how the nightly cleanup first failed in production.
+    """
 
     def __init__(self, url: str, key: str):
         self.base = f"{url}/rest/v1/generations"
@@ -144,19 +150,22 @@ class SupabaseStore:
         r.raise_for_status()
 
     def update(self, job_id: str, fields: Dict[str, Any]) -> None:
-        r = httpx.patch(f"{self.base}?id=eq.{job_id}", json=fields,
+        r = httpx.patch(self.base, params={"id": f"eq.{job_id}"}, json=fields,
                         headers={**self.headers, "Prefer": "return=minimal"}, timeout=30.0)
         r.raise_for_status()
 
     def get(self, job_id: str) -> Optional[Dict[str, Any]]:
-        r = httpx.get(f"{self.base}?id=eq.{job_id}&select=*", headers=self.headers, timeout=30.0)
+        r = httpx.get(self.base, params={"id": f"eq.{job_id}", "select": "*"},
+                      headers=self.headers, timeout=30.0)
         r.raise_for_status()
         rows = r.json()
         return rows[0] if rows else None
 
     def count_recent(self, ip_hash: str, since: datetime) -> int:
         r = httpx.get(
-            f"{self.base}?ip_hash=eq.{ip_hash}&created_at=gte.{iso(since)}&select=id",
+            self.base,
+            params={"ip_hash": f"eq.{ip_hash}", "created_at": f"gte.{iso(since)}",
+                    "select": "id"},
             headers={**self.headers, "Prefer": "count=exact", "Range": "0-0"}, timeout=30.0)
         r.raise_for_status()
         content_range = r.headers.get("content-range", "*/0")
@@ -164,7 +173,9 @@ class SupabaseStore:
 
     def list_expired(self, now: datetime, limit: int = 200) -> List[Dict[str, Any]]:
         r = httpx.get(
-            f"{self.base}?status=neq.expired&expires_at=lte.{iso(now)}&select=*&limit={limit}",
+            self.base,
+            params={"status": "neq.expired", "expires_at": f"lte.{iso(now)}",
+                    "select": "*", "limit": str(limit)},
             headers=self.headers, timeout=30.0)
         r.raise_for_status()
         return r.json()

@@ -246,5 +246,47 @@ check("cleanup deleted its files", r.json()["files_deleted"] >= 2, r.json())
 check("cleaned job has no artifacts",
       client.get(f"/api/jobs/{job_id}").json()["artifacts"] == [])
 
+# ------------------------------------- Supabase query encoding (no network)
+# The nightly cleanup failed in production with a 500 because the ISO
+# timestamp was interpolated straight into the URL: a raw "+" in a query
+# string is a space, so PostgREST got a malformed date and answered 400.
+import httpx  # noqa: E402
+
+from app.store import SupabaseStore  # noqa: E402
+
+captured = {}
+
+
+def _fake_get(url, **kwargs):
+    captured["url"] = str(httpx.Request("GET", url, params=kwargs.get("params")).url)
+
+    class R:
+        headers = {"content-range": "*/0"}
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return []
+
+    return R()
+
+
+real_get, httpx.get = httpx.get, _fake_get
+try:
+    store = SupabaseStore("https://example.supabase.co", "key")
+    store.list_expired(utcnow())
+    listed = captured["url"]
+    store.count_recent("abc", utcnow())
+    counted = captured["url"]
+finally:
+    httpx.get = real_get
+
+for name, url in (("list_expired", listed), ("count_recent", counted)):
+    check(f"{name}: timestamp url-encoded, non un '+' grezzo",
+          "%2B" in url and "+" not in url.split("?", 1)[1], url)
+
 print("\n" + ("ALL OK" if not fails else "FAILED: " + ", ".join(fails)))
 sys.exit(1 if fails else 0)
