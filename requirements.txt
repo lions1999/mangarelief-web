@@ -15,6 +15,10 @@ httpx==0.28.1
 numpy==2.4.6
 opencv-python-headless==5.0.0.93
 trimesh==5.1.0
+# trimesh's 3MF exporter is registered only when lxml is importable: without
+# it every generation dies at export time with ModuleNotFoundError. It is an
+# optional trimesh extra, so it has to be declared explicitly.
+lxml==6.1.3
 networkx==3.6.1
 pillow==12.3.0
 pillow-heif==1.6.0
