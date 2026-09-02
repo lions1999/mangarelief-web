@@ -149,6 +149,40 @@ check("spot auto-accent: accents stored in params",
       len(rec["params"]["resolved"]["spot_accents"]) >= 1,
       rec["params"]["resolved"]["spot_accents"])
 
+# ------------------------------------------------------------------ mockup
+def png_size(blob: bytes):
+    """PNG header: 8-byte signature, then IHDR with width and height."""
+    assert blob[:8] == b"\x89PNG\r\n\x1a\n"
+    return int.from_bytes(blob[16:20], "big"), int.from_bytes(blob[20:24], "big")
+
+
+def mockup(params: dict | None = None):
+    files = {"image": ("panel.png", io.BytesIO(IMG), "image/png")}
+    data = {"params": json.dumps(params)} if params else {}
+    return client.post("/api/mockup", files=files, data=data)
+
+
+r = mockup({"mode": "standard"})
+check("mockup standard 200", r.status_code == 200, r.status_code)
+check("mockup standard: PNG", r.headers["content-type"] == "image/png",
+      r.headers.get("content-type"))
+w_std, h_std = png_size(r.content)
+check("mockup standard: downscaled", max(w_std, h_std) <= 700, (w_std, h_std))
+
+r = mockup({"mode": "spot_color", "spot_accents": [[231, 47, 55]], "spot_coverage": 40})
+check("mockup spot 200", r.status_code == 200, r.status_code)
+spot_png = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_COLOR)
+colours = np.unique(spot_png.reshape(-1, 3), axis=0)
+check("mockup spot: only palette colours (white + accent + black)",
+      len(colours) == 3, len(colours))
+
+r = mockup({"mode": "spot_color"})
+check("mockup spot without accents: auto-detected", r.status_code == 200, r.status_code)
+
+r = mockup({"mode": "spot_color", "autodetect_accents": False})
+check("mockup spot with no accent and no autodetect -> 422", r.status_code == 422,
+      r.status_code)
+
 # ---------------------------------------------------------------- free tier
 r = upload({"mode": "standard", "max_dim": 240, "max_res_cap": 1600})
 check("free tier: request accepted", r.status_code == 202, r.text[:200])

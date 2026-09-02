@@ -16,5 +16,5 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt
-      - run: python tests/smoke_api.py
+      - run: pip install -r api/requirements.txt
+      - run: python api/tests/smoke_api.py

@@ -10,7 +10,7 @@
 set -euo pipefail
 
 DESKTOP_REPO="${1:-../MangaRelief}"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../api" && pwd)"
 
 if [ ! -d "$DESKTOP_REPO/engine" ]; then
     echo "No engine/ in $DESKTOP_REPO — pass the path to the desktop repo." >&2

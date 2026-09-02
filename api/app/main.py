@@ -17,7 +17,12 @@ from fastapi import (Depends, FastAPI, Form, Header, HTTPException, Request,
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
-from .analysis import analyze, resolve_params
+import cv2
+import numpy as np
+
+from engine.color_utils import classify_spot_pixels, downsample_for_analysis
+
+from .analysis import analyze, filtered_gray, resolve_params
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import QueueFull, runner
@@ -151,6 +156,51 @@ def analyze_image(
     rgb = decode_or_422(read_upload(image))
     info = analyze(rgb, p.base_h, p.max_h, p.layer_height, p.halftone_threshold)
     return AnalysisResult(**info)
+
+
+MOCKUP_MAX_PX = 700
+
+
+@app.post("/api/mockup")
+def mockup(
+    image: UploadFile = File(...),
+    params: Optional[str] = Form(None),
+):
+    """A 2D preview of how the image will be classified, as a PNG.
+
+    Spot Color is unusable without it: accents and coverage cannot be tuned
+    blind, and a full generation per adjustment is far too slow. Deliberately
+    computed at a small resolution — this is called on every slider move
+    (debounced), not once per job.
+    """
+    p = parse_params(params)
+    rgb = decode_or_422(read_upload(image))
+    small = downsample_for_analysis(rgb, MOCKUP_MAX_PX)
+
+    if p.mode.value == "spot_color":
+        accents = [tuple(a) for a in p.spot_accents]
+        if not accents and p.autodetect_accents:
+            accents = analyze(rgb, n_accents=2)["suggested_accents"][:2]
+        if not accents:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "spot_color needs at least one accent colour to preview")
+        white_clip = p.white_clip if p.white_clip is not None else 235
+        black_clip = p.black_clip if p.black_clip is not None else 15
+        palette, idx = classify_spot_pixels(small, accents, coverage=p.spot_coverage,
+                                            white_clip=white_clip, black_clip=black_clip)
+        preview = np.array(palette, dtype=np.uint8)[idx]
+    else:
+        # Standard mode prints from the filtered grayscale, so that is the
+        # honest preview of what the relief will follow.
+        preview = cv2.cvtColor(filtered_gray(small), cv2.COLOR_GRAY2RGB)
+
+    ok, buf = cv2.imencode(".png", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
+    if not ok:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "preview encoding failed")
+
+    return Response(content=buf.tobytes(), media_type="image/png",
+                    headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/jobs", response_model=JobCreated, status_code=status.HTTP_202_ACCEPTED)
