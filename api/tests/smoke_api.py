@@ -78,6 +78,9 @@ def wait_for(job_id: str, timeout: float = 300.0) -> dict:
 
 
 # ------------------------------------------------------------------ health
+r = client.get("/")
+check("root descrive il servizio", r.status_code == 200 and "docs" in r.json(), r.text[:100])
+
 r = client.get("/healthz")
 check("healthz ok", r.status_code == 200 and r.json()["status"] == "ok", r.text[:120])
 check("healthz reports local backend", r.json()["backend"] == "local")

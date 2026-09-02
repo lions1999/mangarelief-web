@@ -133,6 +133,22 @@ def record_to_view(record: dict, base_url: str) -> JobView:
 
 
 # ----------------------------------------------------------------- routes
+@app.get("/")
+def root():
+    """Say what this is.
+
+    Without it the root path answers a bare `{"detail":"Not Found"}`, which
+    reads like a broken deployment to anyone who opens the base URL — and the
+    base URL is exactly what people paste into a browser first.
+    """
+    return {
+        "service": "MangaRelief API",
+        "docs": "/docs",
+        "health": "/healthz",
+        "source": "https://github.com/lions1999/mangarelief-web",
+    }
+
+
 @app.get("/healthz")
 def healthz():
     return {
