@@ -1,0 +1,3 @@
+# Minimal config for the Supabase GitHub integration / CLI.
+# project_id is the local project name, not the dashboard ref.
+project_id = "mangarelief"

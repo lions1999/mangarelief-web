@@ -120,10 +120,13 @@ on `$PORT`, which is what Cloud Run and Hugging Face Spaces inject.
 
 ### Supabase
 
-Run `supabase/schema.sql` in the SQL editor. It creates the `generations` table
-(state, retention ledger and usage log in one), its indexes, and the private
-`generations` storage bucket. Row level security is on with no public policy:
-the API is the only client and it uses the service-role key.
+The schema lives in `supabase/migrations/` — the layout the Supabase GitHub
+integration and `supabase db push` expect. Paste it into the SQL editor if you
+prefer; every statement is idempotent either way. It creates the `generations`
+table (state, retention ledger and usage log in one), its indexes, and the
+private `generations` storage bucket. Row level security is on with no public
+policy: the API is the only client and it uses the service-role key.
+See `supabase/README.md` for the queries that confirm it landed.
 
 ---
 
