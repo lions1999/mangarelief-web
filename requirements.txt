@@ -1,0 +1,26 @@
+# Pinned to the versions this service was actually verified against
+# (tests/smoke_api.py, both modes end to end). The desktop repo pins an older
+# set — numpy 1.26 / opencv 4.9 / trimesh 4.1 — so if you sync the engine and
+# something drifts, that difference is the first place to look.
+
+# Web layer
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+pydantic==2.13.5
+httpx==0.28.1
+
+# Generation engine, minus PyQt6. opencv is the headless build: no GUI
+# libraries to install in the image.
+numpy==2.4.6
+opencv-python-headless==5.0.0.93
+trimesh==5.1.0
+networkx==3.6.1
+pillow==12.3.0
+pillow-heif==1.6.0
+scipy==1.17.1
+scikit-learn==1.9.0
+fast-simplification==0.2.0
+shapely==2.1.2
+manifold3d==3.5.2
+mapbox-earcut==2.0.0

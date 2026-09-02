@@ -1,0 +1,33 @@
+# Nightly retention sweep: deletes artifacts past their expiry.
+#
+# The endpoint does the work; this is only the clock. Cloud Run scales to zero,
+# so the request also has to survive a cold start — hence the retry.
+name: cleanup
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 03:17 UTC, off the top of the hour
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call /api/internal/cleanup
+        env:
+          API_URL: ${{ secrets.API_URL }}
+          CLEANUP_TOKEN: ${{ secrets.CLEANUP_TOKEN }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /tmp/body.json -w '%{http_code}' \
+              --max-time 120 \
+              -X POST "$API_URL/api/internal/cleanup" \
+              -H "X-Cleanup-Token: $CLEANUP_TOKEN") && true
+            echo "attempt $attempt -> HTTP $code"
+            cat /tmp/body.json; echo
+            [ "$code" = "200" ] && exit 0
+            sleep $((attempt * 10))
+          done
+          echo "cleanup failed after 3 attempts" >&2
+          exit 1

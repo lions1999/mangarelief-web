@@ -1,0 +1,1 @@
+"""MangaRelief web service."""
