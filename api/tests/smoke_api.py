@@ -253,6 +253,7 @@ check("cleaned job has no artifacts",
 # --------------------------------- cleanup: ogni errore deve avere un nome
 # Il cleanup rispondeva 500 "Internal Server Error" perche' intercettavo solo
 # gli errori HTTP: un problema di connessione o di URL cadeva fuori.
+import httpx  # noqa: E402
 import app.main as main_module  # noqa: E402
 
 
@@ -271,12 +272,26 @@ finally:
 check("cleanup: errore non-HTTP -> 502 con la causa",
       r.status_code == 502 and "ConnectionError" in r.text, f"{r.status_code} {r.text[:120]}")
 
+
+class _NoDns:
+    def list_expired(self, *a, **k):
+        req = httpx.Request("GET", "https://typo.supabase.co/rest/v1/generations")
+        raise httpx.ConnectError("[Errno -2] Name or service not known", request=req)
+
+
+main_module.get_store = lambda: _NoDns()
+try:
+    r = client.post("/api/internal/cleanup", headers={"X-Cleanup-Token": "smoke-token"})
+finally:
+    main_module.get_store = real_get_store
+
+check("cleanup: errore DNS nomina l'host irraggiungibile",
+      r.status_code == 502 and "typo.supabase.co" in r.text, f"{r.status_code} {r.text[:160]}")
+
 # ------------------------------------- Supabase query encoding (no network)
 # The nightly cleanup failed in production with a 500 because the ISO
 # timestamp was interpolated straight into the URL: a raw "+" in a query
 # string is a space, so PostgREST got a malformed date and answered 400.
-import httpx  # noqa: E402
-
 from app.store import SupabaseStore  # noqa: E402
 
 captured = {}

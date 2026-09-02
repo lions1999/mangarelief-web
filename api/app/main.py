@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from urllib.parse import urlparse
 from typing import Optional
 
 from fastapi import (Depends, FastAPI, Form, Header, HTTPException, Request,
@@ -107,11 +108,15 @@ def parse_params(raw: Optional[str]) -> JobParams:
 def _describe(exc: Exception) -> str:
     """A short, safe description of a failure, for a caller who has to fix it.
 
-    HTTP errors carry the upstream status and body; anything else its type and
-    message. Neither leaks credentials — the keys live in headers we never echo.
+    HTTP errors carry the upstream status and body; transport errors carry the
+    host they failed to reach, because "Name or service not known" without a
+    hostname is a dead end — the answer is almost always a typo in the URL.
+    Neither leaks credentials: the keys travel in headers we never echo.
     """
     if isinstance(exc, httpx.HTTPStatusError):
         return f"{exc.response.status_code} {exc.response.text[:300]}"
+    if isinstance(exc, httpx.RequestError) and exc.request is not None:
+        return f"{type(exc).__name__} reaching {exc.request.url.host}: {exc}"[:300]
     return f"{type(exc).__name__}: {exc}"[:300]
 
 
@@ -175,6 +180,10 @@ def healthz(deep: bool = False):
         "queue": runner.pending,
         "version": app.version,
     }
+    if settings.use_supabase:
+        # The host, never the key: a project ref is public (it is in the
+        # dashboard URL), and seeing it here is what catches a typo.
+        body["supabase_host"] = urlparse(settings.supabase_url).hostname
     if deep:
         try:
             get_store().list_expired(utcnow(), limit=1)
