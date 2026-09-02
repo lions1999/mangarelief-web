@@ -1,5 +1,5 @@
-# Backend image. Lives at the repo root because Hugging Face Spaces builds from
-# the root of the Space repo; everything it needs is under api/.
+# Backend image. Lives at the repo root because Cloud Run's "deploy from
+# source" builds from the repository root; everything it needs is under api/.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -18,12 +18,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api/engine ./engine
 COPY api/app ./app
 
-# Spaces runs as a non-root user and gives it /data; the local fallback store
-# writes there when Supabase is not configured.
+# Fallback store path, used only when Supabase is not configured. On Cloud Run
+# the filesystem is in-memory, so this is for local runs — in production the
+# artifacts go to Supabase Storage.
 ENV LOCAL_DATA_DIR=/data
 RUN mkdir -p /data && chmod 777 /data
 
-# Cloud Run injects PORT; Spaces expects 7860. Both honour the variable.
+# Cloud Run injects PORT.
 ENV PORT=8080
 EXPOSE 8080
 

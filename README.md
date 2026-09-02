@@ -136,11 +136,23 @@ on `$PORT`, which is what Cloud Run and Hugging Face Spaces inject, and defaults
 
 ### Deploying
 
-**Backend → Hugging Face Spaces.** `.github/workflows/deploy-space.yml` pushes
-the Dockerfile plus `api/` to a Space on every change. It needs two repository
-secrets: `HF_TOKEN` (a write token) and `HF_SPACE` (`user/space-name`). Without
-them the job skips instead of failing. A Space sleeps when idle, so the first
-request of the day takes a few seconds — the UI says so rather than hiding it.
+**Backend → Cloud Run.** Either connect the repository in the Cloud Run console
+("deploy from repository", which sets up a Cloud Build trigger and needs no
+secrets in GitHub), or run `./scripts/deploy_cloudrun.sh <project-id>`.
+
+Two settings are correctness, not tuning:
+
+- **CPU always allocated** (`--no-cpu-throttling`). Cloud Run throttles CPU to
+  near zero outside a request, and a generation runs in a background thread
+  *after* the `202` response — with the default setting it stalls.
+- **2 GiB of memory.** A draft (800px) generation peaks around 900 MB RSS and
+  full quality around 2 GB, measured; 1 GiB is OOM-killed mid-mesh.
+
+Scaling to zero means the first request after an idle period pays a cold start —
+the UI says so rather than hiding it.
+
+(Hugging Face Spaces was the original target, but since July 2026 Docker Spaces
+require a paid plan, so the free path there is gone.)
 
 **Frontend → Cloudflare Pages.** Root directory `web`, build command
 `npm run build`, output directory `dist`, and one environment variable:
@@ -207,6 +219,9 @@ that is what makes this service possible at all.
 - **Cold starts are slow.** Scaling to zero plus heavy scientific imports means
   the first request after idling takes several seconds; the UI says so rather
   than hiding it.
+- **Memory is the real ceiling.** 913 MB peak for a draft run, 1.98 GB at
+  1200px — measured, not estimated. It is why the anonymous tier is capped at
+  draft, and why any 512 MB free tier is out of the question.
 - **The STL preview is the full mesh** — a few MB over the wire. Fine on a
   desktop, heavy on a phone; a decimated preview mesh is the fix when it starts
   to matter.
