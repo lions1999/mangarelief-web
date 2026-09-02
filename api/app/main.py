@@ -104,6 +104,17 @@ def parse_params(raw: Optional[str]) -> JobParams:
                             json.loads(exc.json())) from exc
 
 
+def _describe(exc: Exception) -> str:
+    """A short, safe description of a failure, for a caller who has to fix it.
+
+    HTTP errors carry the upstream status and body; anything else its type and
+    message. Neither leaks credentials — the keys live in headers we never echo.
+    """
+    if isinstance(exc, httpx.HTTPStatusError):
+        return f"{exc.response.status_code} {exc.response.text[:300]}"
+    return f"{type(exc).__name__}: {exc}"[:300]
+
+
 def record_to_view(record: dict, base_url: str) -> JobView:
     expires = parse_iso(record.get("expires_at"))
     job_status = record["status"]
@@ -168,12 +179,9 @@ def healthz(deep: bool = False):
         try:
             get_store().list_expired(utcnow(), limit=1)
             body["database"] = "ok"
-        except httpx.HTTPStatusError as exc:
-            body["status"] = "degraded"
-            body["database"] = f"{exc.response.status_code}: {exc.response.text[:300]}"
         except Exception as exc:  # noqa: BLE001 - surfacing the reason is the point
             body["status"] = "degraded"
-            body["database"] = f"{type(exc).__name__}: {exc}"[:300]
+            body["database"] = _describe(exc)
     return body
 
 
@@ -294,16 +302,14 @@ def create_job(
 
     try:
         get_store().insert(record)
-    except httpx.HTTPStatusError as exc:
+    except Exception as exc:  # noqa: BLE001 - the caller has to know why
         # The row must exist before the job starts, so a database refusal has
-        # to fail the request — but with the reason attached. A bare 500 here
-        # costs a trip through the platform logs to learn nothing; the most
-        # common cause is the anon key instead of the service-role one, which
-        # row level security rejects on insert while still allowing reads.
-        log.error("insert refused: %s %s", exc.response.status_code, exc.response.text[:300])
+        # to fail the request — but with the reason attached. The most common
+        # cause is the anon key instead of the service-role one, which row
+        # level security rejects on insert while still allowing reads.
+        log.exception("insert refused")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
-                            f"could not record the job: {exc.response.status_code} "
-                            f"{exc.response.text[:300]}") from exc
+                            f"could not record the job: {_describe(exc)}") from exc
 
     try:
         runner.submit(job_id, rgb, p.mode.value, engine_kwargs)
@@ -400,20 +406,26 @@ def cleanup(x_cleanup_token: str = Header(default="")):
 
     try:
         expired = store.list_expired(now)
-    except httpx.HTTPStatusError as exc:
-        # A bare 500 here costs a round-trip through the CI logs to learn
-        # nothing; the upstream status and message say what actually broke.
+    except Exception as exc:  # noqa: BLE001 - naming the cause is the point
+        # Catch everything, not just HTTP status errors: a bad URL, DNS or a
+        # timeout raises a different type and would fall through as a bare 500,
+        # which is precisely the dead end this endpoint kept producing.
+        log.exception("cleanup: listing expired rows failed")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
-                            f"database query failed: {exc.response.status_code} "
-                            f"{exc.response.text[:300]}") from exc
+                            f"database query failed: {_describe(exc)}") from exc
 
     for record in expired:
         try:
             files_deleted += storage.delete_prefix(record["id"])
         except Exception:
             log.warning("could not delete files of %s", record["id"], exc_info=True)
-        store.update(record["id"], {"status": JobStatus.EXPIRED.value,
-                                    "artifacts": [], "message": "Expired"})
+        try:
+            store.update(record["id"], {"status": JobStatus.EXPIRED.value,
+                                        "artifacts": [], "message": "Expired"})
+        except Exception as exc:  # noqa: BLE001
+            log.exception("cleanup: marking %s expired failed", record["id"])
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+                                f"database update failed: {_describe(exc)}") from exc
         jobs_cleaned += 1
 
     log.info("cleanup: %d jobs, %d files", jobs_cleaned, files_deleted)

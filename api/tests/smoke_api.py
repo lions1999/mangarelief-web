@@ -250,6 +250,27 @@ check("cleanup deleted its files", r.json()["files_deleted"] >= 2, r.json())
 check("cleaned job has no artifacts",
       client.get(f"/api/jobs/{job_id}").json()["artifacts"] == [])
 
+# --------------------------------- cleanup: ogni errore deve avere un nome
+# Il cleanup rispondeva 500 "Internal Server Error" perche' intercettavo solo
+# gli errori HTTP: un problema di connessione o di URL cadeva fuori.
+import app.main as main_module  # noqa: E402
+
+
+class _Boom:
+    def list_expired(self, *a, **k):
+        raise ConnectionError("connessione rifiutata")
+
+
+real_get_store = main_module.get_store
+main_module.get_store = lambda: _Boom()
+try:
+    r = client.post("/api/internal/cleanup", headers={"X-Cleanup-Token": "smoke-token"})
+finally:
+    main_module.get_store = real_get_store
+
+check("cleanup: errore non-HTTP -> 502 con la causa",
+      r.status_code == 502 and "ConnectionError" in r.text, f"{r.status_code} {r.text[:120]}")
+
 # ------------------------------------- Supabase query encoding (no network)
 # The nightly cleanup failed in production with a 500 because the ISO
 # timestamp was interpolated straight into the URL: a raw "+" in a query
