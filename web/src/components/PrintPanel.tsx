@@ -1,75 +1,22 @@
-import type { Analysis, JobParams, Mode } from "../types";
+/**
+ * Physical size and layer settings — the same ranges the desktop spinboxes
+ * enforce. Last in the sidebar: they are the settings you touch once, after
+ * the colours are right.
+ */
+import type { JobParams } from "../types";
 
 interface Props {
   params: JobParams;
-  analysis: Analysis | null;
   disabled: boolean;
   onChange: (patch: Partial<JobParams>) => void;
 }
 
-const MODES: { value: Mode; label: string; blurb: string }[] = [
-  {
-    value: "standard",
-    label: "Standard relief",
-    blurb: "Grayscale terraces. The colour count follows the halftone density of the artwork.",
-  },
-  {
-    value: "spot_color",
-    label: "Spot colour",
-    blurb: "Silkscreen look: white base, one or two accents, black linework on top.",
-  },
-];
-
-export default function ParamsPanel({ params, analysis, disabled, onChange }: Props) {
+export default function PrintPanel({ params, disabled, onChange }: Props) {
   const layers = Math.round((params.max_h - params.base_h) / params.layer_height);
-  const colours = params.color_mode ?? analysis?.color_mode ?? 4;
 
   return (
     <section className="panel">
-      <h2>2 · Choose a look</h2>
-      <div className="modes">
-        {MODES.map((m) => (
-          <button
-            key={m.value}
-            type="button"
-            disabled={disabled}
-            className={`mode${params.mode === m.value ? " active" : ""}`}
-            onClick={() => onChange({ mode: m.value })}
-          >
-            <strong>{m.label}</strong>
-            <span>{m.blurb}</span>
-          </button>
-        ))}
-      </div>
-
-      {analysis && params.mode === "standard" && (
-        <>
-          <h2>3 · How many colours</h2>
-          <div className="toggles">
-            {[2, 3, 4].map((n) => (
-              <button
-                key={n}
-                type="button"
-                disabled={disabled}
-                className={`toggle${(params.color_mode ?? analysis.color_mode) === n ? " active" : ""}`}
-                onClick={() => onChange({ color_mode: n })}
-              >
-                {n}
-                {n === analysis.color_mode && <em>suggested</em>}
-              </button>
-            ))}
-          </div>
-          <p className="hint">
-            {/* The count is a cost, not a quality setting: each extra colour is
-                one more bobbin to own and one more pause to stand through. */}
-            {colours - 1} filament {colours - 1 === 1 ? "change" : "changes"} while
-            printing. The analysis found {analysis.halftone_pct.toFixed(1)}%
-            halftones, which suits {analysis.color_mode}.
-          </p>
-        </>
-      )}
-
-      <h2>4 · Size and print</h2>
+      <h2>Size and print</h2>
       <label className="field">
         <span>
           Long side <em>{params.max_dim} mm</em>

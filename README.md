@@ -193,12 +193,32 @@ api/
   engine/         Vendored from the desktop repo — see api/ENGINE_SOURCE
   tests/          The end-to-end suite CI runs
 web/
+  src/App.tsx             The shell: settings sidebar + stage
   src/api.ts              The only module that knows the API exists
-  src/components/         Dropzone, params, spot panel, viewer, progress
+  src/components/Stage.tsx         The stage: artwork picker or finished model
+  src/components/         Dropzone, look, print, tones, accents, progress
   src/components/ModelViewer.tsx   three.js STL viewer
+  src/hooks/              Debounced mockup, tone slots, accent slots
 supabase/         Schema as migrations
 Dockerfile        Backend image, at the root because Spaces builds from there
 ```
+
+### Layout
+
+An app shell, not a page: a fixed settings sidebar on the left and one stage
+that takes everything else. The window does not scroll — the sidebar scrolls
+its own contents, Generate is pinned to its foot, and the stage holds either
+the artwork you sample colours from or the finished model, as two tabs.
+
+That last part is deliberate. The model does not *replace* the picker, because
+the loop this tool is used in is "look at the model, go back, move a tone,
+generate again"; discarding the picker on success would make that a reload.
+The preview mockup is the control you actually judge Spot Colour by, so it gets
+half the stage rather than a thumbnail inside a form.
+
+Below 900px the two stack and the window scrolls again — a sidebar and a stage
+cannot both be usable in one phone viewport — with Generate stuck to the bottom
+edge and the stage scrolled into view when it is pressed.
 
 ### About `engine/`
 

@@ -14,7 +14,11 @@ interface Props {
   onPick: (colour: RGB) => void;
 }
 
-const MAX_EDGE = 520;
+// The canvas is displayed at its intrinsic size, capped by the frame: no CSS
+// scaling to a letterboxed box, because the pick maps the click through
+// getBoundingClientRect and any gap between the element and the drawn pixels
+// would offset every sample. Big enough to fill the stage on a large screen.
+const MAX_EDGE = 1024;
 
 export default function PickableImage({ file, disabled, onPick }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);

@@ -1,26 +1,27 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
+/**
+ * App shell: a fixed settings sidebar and one stage that fills the rest.
+ *
+ * The earlier layout was a centred two-column page, which meant the controls
+ * and the preview both got half of 1240px on any screen and the previews ended
+ * up postage-stamp sized — and reaching the Generate button meant scrolling.
+ * Here the page itself never scrolls: the sidebar scrolls its own contents,
+ * Generate is pinned to its foot, and the artwork or the model gets every
+ * pixel that is left.
+ */
+import { useCallback, useEffect, useRef, useState } from "react";
 import Dropzone from "./components/Dropzone";
-
-// three.js is ~600 kB of the bundle and is useless until a model exists, so it
-// is fetched the first time a generation finishes, not on page load.
-const ModelViewer = lazy(() => import("./components/ModelViewer"));
-import ParamsPanel from "./components/ParamsPanel";
-import ProgressBar from "./components/ProgressBar";
+import LookPanel from "./components/LookPanel";
+import PrintPanel from "./components/PrintPanel";
 import SpotPanel from "./components/SpotPanel";
+import Stage, { type StageView } from "./components/Stage";
 import TonesPanel from "./components/TonesPanel";
 import Turnstile, { turnstileEnabled } from "./components/Turnstile";
-import { analyze, createJob, downloadUrl, getJob, previewUrl } from "./api";
-import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView } from "./types";
+import { useAccents } from "./hooks/useAccents";
+import { useTones } from "./hooks/useTones";
+import { analyze, createJob, getJob } from "./api";
+import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type RGB } from "./types";
 
 const POLL_MS = 1200;
-
-function expiryLabel(iso: string | null): string {
-  if (!iso) return "";
-  const hours = (new Date(iso).getTime() - Date.now()) / 3_600_000;
-  if (hours <= 0) return "expired";
-  if (hours < 1) return `${Math.round(hours * 60)} minutes`;
-  return `${Math.round(hours)} hours`;
-}
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -31,12 +32,19 @@ export default function App() {
   const [error, setError] = useState("");
   const [notes, setNotes] = useState<string | null>(null);
   const [token, setToken] = useState("");
+  const [view, setView] = useState<StageView>("art");
   const poll = useRef<number | undefined>(undefined);
+  const stage = useRef<HTMLDivElement>(null);
 
   const patch = useCallback(
     (p: Partial<JobParams>) => setParams((old) => ({ ...old, ...p })),
     [],
   );
+
+  const tones = useTones(params, analysis, patch);
+  const accents = useAccents(params, patch);
+  const onPick = (colour: RGB) =>
+    params.mode === "spot_color" ? accents.pick(colour) : tones.pick(colour);
 
   const reset = () => {
     setJob(null);
@@ -49,6 +57,7 @@ export default function App() {
     setFile(f);
     setParams(DEFAULT_PARAMS);
     setAnalysis(null);
+    setView("art");
     try {
       setAnalysis(await analyze(f));
     } catch (err) {
@@ -82,6 +91,10 @@ export default function App() {
     if (!file) return;
     reset();
     setBusy(true);
+    setView("model");
+    // Stacked on a phone the stage sits below the whole sidebar, so a press on
+    // Generate would otherwise show nothing happening.
+    stage.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     try {
       const { job_id, notes } = await createJob(file, params, token || undefined);
       setNotes(notes);
@@ -89,57 +102,51 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "could not start the generation");
       setBusy(false);
+      setView("art");
     }
   };
 
-  const done = job?.status === "done";
-  const running = job?.status === "queued" || job?.status === "running";
-
   return (
-    <div className="app">
-      <header>
-        <h1>MangaRelief</h1>
-        <p>
-          Turn a panel into a printable multi-colour relief. One image in, an STL
-          and a Bambu-ready 3MF out.
-        </p>
-      </header>
+    <div className="shell">
+      <aside className="side">
+        <div className="side-head">
+          <h1>MangaRelief</h1>
+          <p>A panel in, a printable multi-colour relief out.</p>
+        </div>
 
-      <main>
-        <div className="column">
+        <div className="side-body">
           <section className="panel">
-            <h2>1 · Your artwork</h2>
-            <Dropzone onFile={onFile} disabled={busy} />
-            {file && (
-              <p className="hint">
-                <strong>{file.name}</strong>
-                {analysis && ` · ${analysis.width} × ${analysis.height} px`}
-              </p>
+            <h2>Artwork</h2>
+            {file ? (
+              <>
+                <p className="hint file-line">
+                  <strong>{file.name}</strong>
+                  {analysis && ` · ${analysis.width} × ${analysis.height} px`}
+                </p>
+                <Dropzone onFile={onFile} disabled={busy} compact />
+              </>
+            ) : (
+              <Dropzone onFile={onFile} disabled={busy} compact />
             )}
           </section>
 
-          {file && (
-            <ParamsPanel
-              params={params}
-              analysis={analysis}
-              disabled={busy}
-              onChange={patch}
-            />
-          )}
+          <LookPanel
+            params={params}
+            analysis={analysis}
+            disabled={busy}
+            onChange={patch}
+          />
 
+          {/* The colour controls come before the physical ones: they are what
+              the preview on the stage answers to, and they are why anyone is
+              looking at the artwork in the first place. */}
           {file && params.mode === "standard" && (
-            <TonesPanel
-              file={file}
-              params={params}
-              analysis={analysis}
-              disabled={busy}
-              onChange={patch}
-            />
+            <TonesPanel tones={tones} disabled={busy} />
           )}
 
           {file && params.mode === "spot_color" && (
             <SpotPanel
-              file={file}
+              accents={accents}
               params={params}
               suggested={analysis?.suggested_accents ?? []}
               disabled={busy}
@@ -147,92 +154,35 @@ export default function App() {
             />
           )}
 
-          {file && (
-            <section className="panel">
-              {turnstileEnabled && <Turnstile onToken={setToken} />}
-              <button className="primary" onClick={generate} disabled={busy}>
-                {busy ? "Generating…" : "Generate model"}
-              </button>
-              {error && <p className="field-error">{error}</p>}
-              {notes && <p className="hint">{notes}</p>}
-            </section>
-          )}
+          <PrintPanel params={params} disabled={busy} onChange={patch} />
         </div>
 
-        <div className="column">
-          <section className="panel result">
-            <h2>Result</h2>
-
-            {!job && !busy && (
-              <p className="hint">
-                The 3D preview appears here when the model is ready. Looking at it
-                is free and does not start the expiry clock — only downloading does.
-              </p>
-            )}
-
-            {running && (
-              <ProgressBar
-                progress={job?.progress ?? 0}
-                message={job?.message ?? ""}
-                cold={(job?.progress ?? 0) === 0}
-              />
-            )}
-
-            {done && job && (
-              <>
-                <Suspense fallback={<div className="viewer-canvas" />}>
-                  <ModelViewer url={previewUrl(job.job_id)} />
-                </Suspense>
-                <div className="downloads">
-                  {job.artifacts.map((a) => (
-                    <a key={a.kind} className="primary" href={downloadUrl(job.job_id, a.kind)}>
-                      Download {a.kind.toUpperCase()}
-                      <em>{(a.bytes / 1024 / 1024).toFixed(1)} MB</em>
-                    </a>
-                  ))}
-                </div>
-                {job.filament_changes.length > 0 && (
-                  <div className="plan">
-                    <h3>Filament changes</h3>
-                    <ol>
-                      {job.filament_changes.map((c, i) => (
-                        <li key={c.z}>
-                          <span className="plan-z">{c.z.toFixed(2)} mm</span>
-                          {c.color && (
-                            <span className="chip" style={{ background: c.color }} />
-                          )}
-                          <span className="plan-what">
-                            {c.color ? `load ${c.color}` : `colour ${i + 2}`}
-                          </span>
-                        </li>
-                      ))}
-                    </ol>
-                    <p className="hint">
-                      The 3MF has these placed already — open it in Bambu Studio and
-                      print. The plain STL does not carry them, so pause at each
-                      height yourself.
-                    </p>
-                  </div>
-                )}
-
-                <p className="hint">
-                  Generated in {job.duration_s?.toFixed(1)}s. Files are deleted in{" "}
-                  {expiryLabel(job.expires_at)}, and 24 hours after your first
-                  download — save them somewhere.
-                </p>
-              </>
-            )}
-
-            {job?.status === "expired" && (
-              <p className="field-error">This result has expired. Generate it again.</p>
-            )}
-          </section>
+        <div className="side-foot">
+          {turnstileEnabled && file && <Turnstile onToken={setToken} />}
+          <button className="primary" onClick={generate} disabled={busy || !file}>
+            {busy ? "Generating…" : "Generate model"}
+          </button>
+          {error && <p className="field-error">{error}</p>}
+          {notes && <p className="hint">{notes}</p>}
+          <p className="hint small">
+            Free generations run at draft resolution · 5 per hour
+          </p>
         </div>
+      </aside>
+
+      <main ref={stage} className="main">
+        <Stage
+          file={file}
+          params={params}
+          analysis={analysis}
+          job={job}
+          view={view}
+          disabled={busy}
+          onView={setView}
+          onFile={onFile}
+          onPick={onPick}
+        />
       </main>
-
-      <footer>
-        <span>Free generations run at draft resolution · 5 per hour</span>
-      </footer>
     </div>
   );
 }

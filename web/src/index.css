@@ -7,6 +7,7 @@
   --muted: #9aa0ad;
   --accent: #e0393f;
   --accent-ink: #fff;
+  --side-w: 372px;
   color-scheme: dark;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color: var(--ink);
@@ -17,58 +18,157 @@
 
 body { margin: 0; }
 
-.app {
-  max-width: 1240px;
-  margin: 0 auto;
-  padding: 32px 20px 60px;
-}
-
-header h1 {
-  margin: 0;
-  font-size: 30px;
-  letter-spacing: -0.02em;
-}
-
-header p {
-  margin: 6px 0 26px;
-  color: var(--muted);
-  max-width: 60ch;
-}
-
-main {
+/* ---------------------------------------------------------------- shell */
+/* Sidebar of settings, stage for the artwork or the model. The window never
+   scrolls: each column scrolls its own overflow, so Generate and the preview
+   are always both on screen. */
+.shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
+  height: 100dvh;
+  overflow: hidden;
 }
 
-@media (max-width: 900px) {
-  main { grid-template-columns: minmax(0, 1fr); }
-}
-
-.column { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
-
-.panel {
+.side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 20px;
+  border-right: 1px solid var(--line);
 }
 
-.panel h2 {
-  margin: 0 0 14px;
+.side-head { padding: 20px 22px 16px; border-bottom: 1px solid var(--line); }
+.side-head h1 { margin: 0; font-size: 21px; letter-spacing: -0.02em; }
+.side-head p { margin: 5px 0 0; color: var(--muted); font-size: 13px; }
+
+.side-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 22px 22px;
 }
+
+.side-foot {
+  padding: 14px 22px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.main { min-width: 0; min-height: 0; display: flex; }
+
+/* --------------------------------------------------------------- panels */
+/* Inside the sidebar a panel is a section of one surface, not a floating
+   card — nested cards on a card is noise at this width. */
+.panel { padding: 18px 0; }
+.panel + .panel { border-top: 1px solid var(--line); }
+.panel h2 { margin: 0 0 14px; font-size: 15px; }
 
 /* A second heading inside a panel follows body text: it needs air above it. */
 .panel h2 ~ h2 {
-  margin-top: 26px;
-  font-size: 13px;
+  margin-top: 24px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
 }
 
-.result { position: sticky; top: 20px; }
+.file-line { margin: 0 0 10px; word-break: break-word; }
+.hint.small { font-size: 11.5px; text-align: center; margin-top: 12px; }
+
+/* ---------------------------------------------------------------- stage */
+.stage {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 22px 22px;
+}
+
+.stage-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 14px;
+}
+.stage-empty > div:first-child { width: min(560px, 100%); }
+.stage-empty .hint { max-width: 52ch; text-align: center; margin: 0; }
+
+.stage-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.stage-note { color: var(--muted); font-size: 12.5px; }
+
+.tabs { display: flex; gap: 4px; padding: 3px; border-radius: 10px; background: var(--panel); }
+.tab {
+  padding: 7px 15px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab.active { background: var(--panel-2); color: var(--ink); }
+.tab:disabled { opacity: 0.4; cursor: default; }
+
+/* Artwork view: source and preview side by side, each as tall as the stage
+   allows. This is the whole point of the layout — the mockup is the control
+   you actually judge Spot Colour and the tone slots by. */
+.stage-art {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.stage-art figure { margin: 0; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.stage-art figcaption { color: var(--muted); font-size: 11.5px; text-align: center; }
+.frame {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+.frame canvas, .frame img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 6px;
+}
+.frame canvas.pickable { cursor: crosshair; }
+
+/* Model view: viewer takes the room, the plan and downloads sit beside it so
+   nothing about the result needs scrolling either. */
+.stage-model {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 16px;
+}
+.stage-viewer { display: flex; flex-direction: column; min-height: 0; }
+.stage-waiting {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  padding: 30px;
+}
+.stage-waiting > * { width: min(420px, 100%); }
+.stage-rail { overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 
 /* ------------------------------------------------------------ dropzone */
 .dropzone {
@@ -77,9 +177,9 @@ main {
   gap: 6px;
   align-items: center;
   justify-content: center;
-  padding: 34px 16px;
+  padding: 46px 16px;
   border: 1.5px dashed var(--line);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--panel-2);
   cursor: pointer;
   text-align: center;
@@ -87,24 +187,26 @@ main {
 }
 .dropzone:hover, .dropzone.over { border-color: var(--accent); background: #21242c; }
 .dropzone.disabled { opacity: 0.5; pointer-events: none; }
+.dropzone.compact { padding: 16px 12px; gap: 3px; font-size: 13px; }
 .dropzone span { color: var(--muted); font-size: 13px; }
+.dropzone.compact span { font-size: 11.5px; }
 
 /* --------------------------------------------------------------- modes */
-.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-@media (max-width: 520px) { .modes { grid-template-columns: 1fr; } }
+.modes { display: grid; gap: 8px; }
 
 .mode {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   text-align: left;
-  padding: 13px;
+  padding: 12px;
   border-radius: 10px;
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--ink);
   cursor: pointer;
   font: inherit;
+  font-size: 13.5px;
 }
 .mode:hover:not(:disabled) { border-color: #3a4050; }
 .mode.active { border-color: var(--accent); background: #241b1d; }
@@ -112,7 +214,7 @@ main {
 .mode:disabled { opacity: 0.55; cursor: default; }
 
 /* -------------------------------------------------------------- fields */
-.field { display: block; margin: 16px 0; }
+.field { display: block; margin: 15px 0; }
 .field > span {
   display: flex;
   justify-content: space-between;
@@ -135,10 +237,10 @@ main {
 .field-error { color: #ff8189; font-size: 13px; margin: 10px 0 0; }
 
 /* ------------------------------------------------------------- accents */
-.accents { display: flex; align-items: center; gap: 10px; }
+.accents { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .swatch {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   border-radius: 9px;
   border: 2px solid var(--line);
   background: var(--panel-2);
@@ -165,21 +267,6 @@ main {
   font-size: 12.5px;
 }
 
-/* -------------------------------------------------------------- mockup */
-.mockup { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
-.mockup figure { margin: 0; min-width: 0; }
-.mockup canvas, .mockup img, .placeholder {
-  width: 100%;
-  height: auto;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  display: block;
-  background: var(--panel-2);
-}
-.placeholder { aspect-ratio: 3 / 4; }
-.mockup canvas.pickable { cursor: crosshair; }
-.mockup figcaption { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
-
 /* ------------------------------------------------------------ progress */
 .progress-track {
   height: 8px;
@@ -202,11 +289,12 @@ main {
 }
 
 /* -------------------------------------------------------------- viewer */
-.viewer { position: relative; }
+.viewer { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .viewer-canvas {
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   overflow: hidden;
   background: #111214;
@@ -224,7 +312,7 @@ main {
 .viewer-hint { color: var(--muted); font-size: 11.5px; margin-top: 7px; text-align: center; }
 
 /* ----------------------------------------------------------- downloads */
-.downloads { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.downloads { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .primary {
   display: inline-flex;
@@ -242,18 +330,11 @@ main {
   cursor: pointer;
   width: 100%;
 }
-.downloads .primary { width: auto; flex: 1 1 160px; }
+.downloads .primary { width: auto; flex: 1 1 120px; }
 .primary em { font-style: normal; font-weight: 400; opacity: 0.8; font-size: 12px; }
 .primary:disabled { opacity: 0.55; cursor: default; }
 
 .turnstile { margin-bottom: 14px; }
-
-footer {
-  margin-top: 34px;
-  color: var(--muted);
-  font-size: 12px;
-  text-align: center;
-}
 
 /* ---------------------------------------------------------- print plan */
 .plan { margin-top: 18px; }
@@ -278,7 +359,7 @@ footer {
   gap: 9px;
   padding: 8px 11px;
   border-radius: 8px;
-  background: var(--panel-2);
+  background: var(--panel);
   font-size: 13px;
 }
 .plan-z {
@@ -293,7 +374,7 @@ footer {
 .toggles { display: flex; gap: 8px; }
 .toggle {
   flex: 1;
-  padding: 11px 8px;
+  padding: 10px 8px;
   border-radius: 9px;
   border: 1px solid var(--line);
   background: var(--panel-2);
@@ -318,3 +399,33 @@ footer {
   text-transform: uppercase;
 }
 .toggle:disabled { opacity: 0.55; cursor: default; }
+
+/* --------------------------------------------------------- responsive */
+/* Below a laptop there is no room for two working columns: the plan and the
+   downloads drop under the viewer, and the source and preview go one above
+   the other. */
+@media (max-width: 1180px) {
+  :root { --side-w: 330px; }
+  .stage-model { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  .stage-rail { overflow: visible; }
+  .stage-model .stage-rail { flex-direction: row; flex-wrap: wrap; gap: 12px 20px; align-items: flex-start; }
+  .stage-model .downloads { flex: 1 1 260px; }
+  .stage-model .plan { flex: 2 1 320px; margin-top: 0; }
+}
+
+/* Stacked: the window scrolls again, because a sidebar and a stage cannot
+   both be usable in one phone viewport. Generate sticks to the bottom so it
+   stays reachable however far down the settings you are. */
+@media (max-width: 900px) {
+  .shell { grid-template-columns: minmax(0, 1fr); height: auto; overflow: visible; }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); }
+  .side-body { overflow: visible; }
+  /* Floating over the settings it scrolls past, so it needs to read as a bar
+     and not as another section. */
+  .side-foot { position: sticky; bottom: 0; z-index: 2; box-shadow: 0 -10px 24px rgba(0, 0, 0, 0.45); }
+  .stage { padding: 16px; }
+  .stage-art { grid-template-columns: minmax(0, 1fr); }
+  .frame { min-height: 240px; }
+  .stage-viewer { min-height: 62vh; }
+  .stage-empty { min-height: 50vh; }
+}

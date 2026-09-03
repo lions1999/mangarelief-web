@@ -3,11 +3,13 @@ import { useRef, useState } from "react";
 interface Props {
   onFile: (file: File) => void;
   disabled?: boolean;
+  /** The small variant that sits in the sidebar once artwork is loaded. */
+  compact?: boolean;
 }
 
 const MAX_MB = 12;
 
-export default function Dropzone({ onFile, disabled }: Props) {
+export default function Dropzone({ onFile, disabled, compact }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [problem, setProblem] = useState("");
@@ -27,7 +29,7 @@ export default function Dropzone({ onFile, disabled }: Props) {
   return (
     <div>
       <div
-        className={`dropzone${over ? " over" : ""}${disabled ? " disabled" : ""}`}
+        className={`dropzone${compact ? " compact" : ""}${over ? " over" : ""}${disabled ? " disabled" : ""}`}
         onDragOver={(e) => {
           e.preventDefault();
           if (!disabled) setOver(true);
@@ -40,8 +42,12 @@ export default function Dropzone({ onFile, disabled }: Props) {
         }}
         onClick={() => !disabled && input.current?.click()}
       >
-        <strong>Drop your artwork here</strong>
-        <span>or click to choose — PNG, JPG, WebP, HEIC · up to {MAX_MB} MB</span>
+        <strong>{compact ? "Replace the artwork" : "Drop your artwork here"}</strong>
+        <span>
+          {compact
+            ? "drop or click"
+            : `or click to choose — PNG, JPG, WebP, HEIC · up to ${MAX_MB} MB`}
+        </span>
         <input
           ref={input}
           type="file"

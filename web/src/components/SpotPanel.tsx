@@ -1,18 +1,15 @@
 /**
- * Accent picking + coverage, with the live 2D mockup beside them.
+ * Accent slots and coverage, as sidebar controls.
  *
  * Coverage is impossible to judge from a number: it decides how far an accent
- * spreads into muted tones, and the only way to set it is to see the result.
- * The preview call is debounced (see useMockup) because it costs a server
- * round-trip today — the one call phase 4 replaces with a local classifier.
+ * spreads into muted tones, and the only way to set it is to watch the preview
+ * on the stage change as you drag.
  */
-import { useState } from "react";
-import PickableImage from "./PickableImage";
-import { useMockup } from "../hooks/useMockup";
+import type { Accents } from "../hooks/useAccents";
 import type { JobParams, RGB } from "../types";
 
 interface Props {
-  file: File;
+  accents: Accents;
   params: JobParams;
   suggested: RGB[];
   disabled: boolean;
@@ -22,27 +19,8 @@ interface Props {
 const hex = ([r, g, b]: RGB) =>
   "#" + [r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("");
 
-export default function SpotPanel({ file, params, suggested, disabled, onChange }: Props) {
-  const [slot, setSlot] = useState(0);
-  const { url: preview, busy, error: problem } = useMockup(
-    file,
-    {
-      mode: "spot_color",
-      spot_accents: params.spot_accents,
-      spot_coverage: params.spot_coverage,
-      autodetect_accents: params.spot_accents.length === 0,
-    },
-    [params.spot_accents.map((a) => a.join()).join("|"), params.spot_coverage],
-  );
-
-  const accents = params.spot_accents;
-  const setAccent = (index: number, colour: RGB | null) => {
-    const next = [...accents];
-    if (colour === null) next.splice(index, 1);
-    else if (index < next.length) next[index] = colour;
-    else next.push(colour);
-    onChange({ spot_accents: next.slice(0, 2), autodetect_accents: next.length === 0 });
-  };
+export default function SpotPanel({ accents, params, suggested, disabled, onChange }: Props) {
+  const values = accents.values;
 
   return (
     <section className="panel">
@@ -54,34 +32,29 @@ export default function SpotPanel({ file, params, suggested, disabled, onChange 
 
       <div className="accents">
         {[0, 1].map((i) => {
-          const colour = accents[i];
+          const colour = values[i];
           return (
             <button
               key={i}
               type="button"
               disabled={disabled}
-              className={`swatch${slot === i ? " active" : ""}`}
+              className={`swatch${accents.slot === i ? " active" : ""}`}
               style={colour ? { background: hex(colour) } : undefined}
-              onClick={() => setSlot(i)}
+              onClick={() => accents.select(i)}
               title={colour ? hex(colour) : "empty slot"}
             >
               {!colour && <span>+</span>}
             </button>
           );
         })}
-        {accents.length > 0 && (
-          <button
-            type="button"
-            className="link"
-            disabled={disabled}
-            onClick={() => onChange({ spot_accents: [], autodetect_accents: true })}
-          >
+        {values.length > 0 && (
+          <button type="button" className="link" disabled={disabled} onClick={accents.reset}>
             reset to detected
           </button>
         )}
       </div>
 
-      {accents.length === 0 && suggested.length > 0 && (
+      {values.length === 0 && suggested.length > 0 && (
         <p className="hint">
           Using the colours detected in the image:{" "}
           {suggested.slice(0, 2).map((c) => (
@@ -107,19 +80,6 @@ export default function SpotPanel({ file, params, suggested, disabled, onChange 
       <p className="hint">
         Low keeps only vivid pixels on the accent; high pulls in muted shades too.
       </p>
-
-      <div className="mockup">
-        <figure>
-          <PickableImage file={file} disabled={disabled}
-                         onPick={(c) => setAccent(slot, c)} />
-          <figcaption>Source — click to pick</figcaption>
-        </figure>
-        <figure>
-          {preview ? <img src={preview} alt="Spot colour preview" /> : <div className="placeholder" />}
-          <figcaption>{busy ? "Updating preview…" : "How it will print"}</figcaption>
-        </figure>
-      </div>
-      {problem && <p className="field-error">{problem}</p>}
     </section>
   );
 }
