@@ -11,6 +11,7 @@ export interface JobParams {
   max_res_cap: number;
   white_clip?: number | null;
   black_clip?: number | null;
+  color_mode?: number | null;
   sampled_values?: number[] | null;
   color_changes_z?: number[] | null;
   spot_accents: RGB[];

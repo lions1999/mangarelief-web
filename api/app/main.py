@@ -285,9 +285,15 @@ def mockup(
 
         changes = [c for c in params.color_changes_z if c > 0]
         tones = _band_tones(params.sampled_values, params.color_mode)
+
+        # A pixel prints in the colour loaded when its surface is reached, so
+        # its band is how many changes lie at or below its height. Every change
+        # counts, the topmost included: dropping it — as a first version did —
+        # leaves the ink colour unused and, with two colours, paints the whole
+        # image in paper.
         band = np.zeros(z.shape, dtype=np.int32)
-        for c in changes[:-1]:          # l'ultimo cambio è il top, non apre banda
-            band += (z > c).astype(np.int32)
+        for c in changes:
+            band += (z >= c - 1e-9).astype(np.int32)
         preview = cv2.cvtColor(np.array(tones, dtype=np.uint8)[np.clip(band, 0, len(tones) - 1)],
                                cv2.COLOR_GRAY2RGB)
 

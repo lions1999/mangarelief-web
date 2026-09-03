@@ -288,3 +288,33 @@ footer {
 }
 .plan-what { color: var(--muted); }
 .plan .chip { margin: 0; width: 15px; height: 15px; }
+
+/* ------------------------------------------------------- toggle group */
+.toggles { display: flex; gap: 8px; }
+.toggle {
+  flex: 1;
+  padding: 11px 8px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.toggle:hover:not(:disabled) { border-color: #3a4050; }
+.toggle.active { border-color: var(--accent); background: #241b1d; }
+.toggle em {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.toggle:disabled { opacity: 0.55; cursor: default; }

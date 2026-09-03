@@ -46,6 +46,11 @@ class JobParams(BaseModel):
     color_changes_z: Optional[List[float]] = None
     halftone_threshold: int = Field(10, ge=1, le=100,
                                     description="Halftone %% above which 4-colour mode is used")
+    color_mode: Optional[int] = Field(
+        None, ge=2, le=4,
+        description="How many filaments to print with. Omit to follow the "
+                    "halftone analysis. Fewer colours means fewer pauses, "
+                    "which is what decides whether someone can actually print it.")
 
     # --- Spot Color ---
     spot_accents: List[RGB] = Field(default_factory=list, max_length=2)

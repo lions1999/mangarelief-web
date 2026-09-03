@@ -22,6 +22,7 @@ const MODES: { value: Mode; label: string; blurb: string }[] = [
 
 export default function ParamsPanel({ params, analysis, disabled, onChange }: Props) {
   const layers = Math.round((params.max_h - params.base_h) / params.layer_height);
+  const colours = params.color_mode ?? analysis?.color_mode ?? 4;
 
   return (
     <section className="panel">
@@ -42,14 +43,33 @@ export default function ParamsPanel({ params, analysis, disabled, onChange }: Pr
       </div>
 
       {analysis && params.mode === "standard" && (
-        <p className="hint">
-          {analysis.halftone_pct.toFixed(1)}% halftones detected →{" "}
-          <strong>{analysis.color_mode}-colour mode</strong>, filament changes at{" "}
-          {analysis.suggested_color_changes_z.filter((z) => z > 0).join(" / ")} mm.
-        </p>
+        <>
+          <h2>3 · How many colours</h2>
+          <div className="toggles">
+            {[2, 3, 4].map((n) => (
+              <button
+                key={n}
+                type="button"
+                disabled={disabled}
+                className={`toggle${(params.color_mode ?? analysis.color_mode) === n ? " active" : ""}`}
+                onClick={() => onChange({ color_mode: n })}
+              >
+                {n}
+                {n === analysis.color_mode && <em>suggested</em>}
+              </button>
+            ))}
+          </div>
+          <p className="hint">
+            {/* The count is a cost, not a quality setting: each extra colour is
+                one more bobbin to own and one more pause to stand through. */}
+            {colours - 1} filament {colours - 1 === 1 ? "change" : "changes"} while
+            printing. The analysis found {analysis.halftone_pct.toFixed(1)}%
+            halftones, which suits {analysis.color_mode}.
+          </p>
+        </>
       )}
 
-      <h2>3 · Size and print</h2>
+      <h2>4 · Size and print</h2>
       <label className="field">
         <span>
           Long side <em>{params.max_dim} mm</em>

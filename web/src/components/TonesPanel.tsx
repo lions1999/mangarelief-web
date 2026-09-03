@@ -28,13 +28,21 @@ export default function TonesPanel({ file, params, analysis, disabled, onChange 
   const [slot, setSlot] = useState(1);   // L1: the one that usually needs help
   const [picked, setPicked] = useState<{ value: number; clamped: number } | null>(null);
   const tones = params.sampled_values ?? analysis?.suggested_sampled_values ?? null;
-  const changes = params.color_changes_z ?? analysis?.suggested_color_changes_z ?? null;
   const manual = params.sampled_values != null;
 
+  // The colour count has to reach the preview, otherwise switching from 4 to 2
+  // changes the mesh but not the picture — which defeats the point of having
+  // the two controls next to each other. The Z heights are left to the server
+  // unless the caller set them: they follow from the count.
   const { url, busy, error } = useMockup(
     file,
-    { mode: "standard", sampled_values: tones ?? undefined, color_changes_z: changes ?? undefined },
-    [tones?.join(), changes?.join()],
+    {
+      mode: "standard",
+      color_mode: params.color_mode ?? analysis?.color_mode,
+      sampled_values: tones ?? undefined,
+      color_changes_z: params.color_changes_z ?? undefined,
+    },
+    [tones?.join(), params.color_mode, params.color_changes_z?.join()],
   );
 
   if (!tones) return null;

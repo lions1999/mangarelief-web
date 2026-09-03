@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORK = tempfile.mkdtemp(prefix="mr-smoke-")
 os.environ.setdefault("LOCAL_DATA_DIR", os.path.join(WORK, "data"))
 os.environ.setdefault("CLEANUP_TOKEN", "smoke-token")
-os.environ.setdefault("ANON_RATE_LIMIT", "6")
+os.environ.setdefault("ANON_RATE_LIMIT", "20")
 os.environ.setdefault("MAX_UPLOAD_BYTES", str(4 * 1024 * 1024))
 
 import cv2  # noqa: E402
@@ -227,6 +227,43 @@ r = mockup({"mode": "spot_color", "autodetect_accents": False})
 check("mockup spot with no accent and no autodetect -> 422", r.status_code == 422,
       r.status_code)
 
+# ------------------------------------------- numero di colori scelto a mano
+for n, attesi in ((2, 1), (3, 2), (4, 3)):
+    r = upload({"mode": "standard", "max_dim": 60, "max_res_cap": 300, "color_mode": n})
+    check(f"{n} colori: job accettato", r.status_code == 202, r.text[:160])
+    body_n = wait_for(r.json()["job_id"])
+    check(f"{n} colori: {attesi} cambi filamento",
+          body_n["status"] == "done" and len(body_n["filament_changes"]) == attesi,
+          body_n.get("error") or body_n.get("filament_changes"))
+
+check("un numero di colori fuori range viene rifiutato",
+      upload({"color_mode": 5}).status_code == 422)
+
+r = mockup({"mode": "standard", "color_mode": 2})
+due = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+r = mockup({"mode": "standard", "color_mode": 4})
+quattro = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+check("l'anteprima segue il numero di colori",
+      len(np.unique(due)) == 2 and len(np.unique(quattro)) >= 3,
+      (len(np.unique(due)), len(np.unique(quattro))))
+check("l'anteprima a 2 colori usa carta e inchiostro, non due grigi",
+      set(np.unique(due).tolist()) == {15, 250}, np.unique(due).tolist())
+
+# Il pannello di prova non ha nero pieno (le linee stanno a 25, sopra il
+# black_clip), quindi la banda d'inchiostro non esiste: e' corretto che non
+# compaia. Con quattro toni veri devono comparire tutte e quattro le bande.
+patches = np.zeros((400, 400, 3), np.uint8)
+for i, v in enumerate((255, 200, 110, 0)):
+    patches[:, i * 100:(i + 1) * 100] = v
+files = {"image": ("patches.png", io.BytesIO(cv2.imencode(".png", patches)[1].tobytes()),
+                   "image/png")}
+r = client.post("/api/mockup", files=files,
+                data={"params": json.dumps({"mode": "standard", "color_mode": 4,
+                                            "sampled_values": [250, 190, 116, 15]})})
+bande = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+check("quattro toni veri -> quattro bande stampate",
+      set(np.unique(bande).tolist()) == {250, 190, 116, 15}, np.unique(bande).tolist())
+
 # ---------------------------------------------------------------- free tier
 r = upload({"mode": "standard", "max_dim": 240, "max_res_cap": 1600})
 check("free tier: request accepted", r.status_code == 202, r.text[:200])
@@ -254,7 +291,7 @@ check("unknown artifact kind -> 404",
 
 # -------------------------------------------------------------- rate limit
 codes = [upload({"mode": "standard", "max_dim": 40, "max_res_cap": 200}).status_code
-         for _ in range(4)]
+         for _ in range(14)]
 check("rate limit kicks in", 429 in codes, codes)
 
 # ------------------------------------------------------------------ cleanup

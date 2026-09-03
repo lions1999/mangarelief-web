@@ -121,7 +121,13 @@ def resolve_params(image_rgb: np.ndarray, params) -> Tuple[dict, dict]:
     white_clip = params.white_clip if params.white_clip is not None else info["suggested_white_clip"]
     black_clip = params.black_clip if params.black_clip is not None else 15
     sampled = params.sampled_values or info["suggested_sampled_values"]
-    changes = params.color_changes_z or info["suggested_color_changes_z"]
+
+    # An explicit colour count wins over the halftone analysis, and the Z
+    # heights follow from it: mode 3 hides L1, mode 2 hides L1 and L2, so the
+    # suggestion computed for another mode would place the wrong pauses.
+    color_mode = params.color_mode or info["color_mode"]
+    changes = params.color_changes_z or auto_color_changes_z(
+        params.base_h, params.max_h, params.layer_height, color_mode)
 
     accents: List[Tuple[int, int, int]] = [tuple(a) for a in params.spot_accents]
     if not accents and params.mode.value == "spot_color" and params.autodetect_accents:
@@ -136,7 +142,7 @@ def resolve_params(image_rgb: np.ndarray, params) -> Tuple[dict, dict]:
         "white_clip": white_clip,
         "black_clip": black_clip,
         "sampled_values": list(sampled),
-        "color_mode": info["color_mode"],
+        "color_mode": color_mode,
         "color_changes_z": list(changes),
         "spot_accents": accents,
         "spot_coverage": params.spot_coverage,
