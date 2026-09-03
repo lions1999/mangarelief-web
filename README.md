@@ -87,7 +87,7 @@ by `.github/workflows/cleanup.yml`.
 | `max_res_cap` | 800 | 200–1600 px | Mesh quality |
 | `white_clip` / `black_clip` | derived | | From the highlight histogram peak |
 | `sampled_values` | derived | 4 values | `[white, L1, L2, black]` |
-| `color_changes_z` | derived | 3 values | Auto-Z, snapped to the layer height |
+| `color_changes_z` | derived | 3 values | Auto-Z: the *top* of each tone's terrace, snapped to the layer height. The filament changes the job reports are derived from the terraces actually produced — one layer above the terrace below — which is where the slicer needs them |
 | `bw_coverage` | 0.35 | 0–1 | Two colours only: a zone prints as ink when at least this share of its area is inked, judged over ~0.7 mm. The image's histogram decides what counts as ink |
 | `spot_accents` | detected | ≤ 2 RGB triples | |
 | `spot_coverage` | 40 | 0–100 | How far an accent spreads into muted tones |

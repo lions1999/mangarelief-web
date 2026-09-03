@@ -248,13 +248,20 @@ check("mockup spot with no accent and no autodetect -> 422", r.status_code == 42
       r.status_code)
 
 # ------------------------------------------- numero di colori scelto a mano
-for n, attesi in ((2, 1), (3, 2), (4, 3)):
+# Le quote sono quelle a cui il colore ENTRA: un layer sopra la terrazza del
+# colore precedente. Con base 1,0 e layer 0,2 il primo cambio e' sempre 1,2;
+# esportare le cime delle terrazze (2,4 a due colori) colorava un layer solo
+# e lasciava le pareti del colore sotto.
+for n, attesi, quote in ((2, 1, [1.2]), (3, 2, [1.2, 1.8]), (4, 3, [1.2, 1.6, 2.2])):
     r = upload({"mode": "standard", "max_dim": 60, "max_res_cap": 300, "color_mode": n})
     check(f"{n} colori: job accettato", r.status_code == 202, r.text[:160])
     body_n = wait_for(r.json()["job_id"])
     check(f"{n} colori: {attesi} cambi filamento",
           body_n["status"] == "done" and len(body_n["filament_changes"]) == attesi,
           body_n.get("error") or body_n.get("filament_changes"))
+    check(f"{n} colori: ogni colore entra un layer sopra la terrazza precedente",
+          [c["z"] for c in body_n.get("filament_changes", [])] == quote,
+          [c["z"] for c in body_n.get("filament_changes", [])])
 
 check("un numero di colori fuori range viene rifiutato",
       upload({"color_mode": 5}).status_code == 422)
