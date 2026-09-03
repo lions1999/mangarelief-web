@@ -14,6 +14,8 @@ export function useMockup(file: File | null, params: Partial<JobParams>, deps: u
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  /** Share of the artwork sitting near the two-colour cut; null outside that mode. */
+  const [ambiguous, setAmbiguous] = useState<number | null>(null);
 
   useEffect(() => {
     if (!file) return;
@@ -24,8 +26,9 @@ export function useMockup(file: File | null, params: Partial<JobParams>, deps: u
         const next = await mockup(file, params, controller.signal);
         setUrl((old) => {
           if (old) URL.revokeObjectURL(old);
-          return next;
+          return next.url;
         });
+        setAmbiguous(next.ambiguous);
         setError("");
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -47,5 +50,5 @@ export function useMockup(file: File | null, params: Partial<JobParams>, deps: u
     if (url) URL.revokeObjectURL(url);
   }, [url]);
 
-  return { url, busy, error };
+  return { url, busy, error, ambiguous };
 }

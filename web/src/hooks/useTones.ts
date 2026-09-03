@@ -18,7 +18,9 @@ export const TONE_LABELS = ["Paper", "Light", "Dark", "Ink"];
  * snap to Light and Dark and take their midpoint. Showing the inert ones is
  * an invitation to spend a minute calibrating a swatch that does nothing.
  */
-const ACTIVE: Record<number, number[]> = { 2: [0, 3], 3: [2], 4: [1, 2] };
+// Two colours has no swatch at all any more: its control is the coverage cut,
+// and the ink level comes from the image's histogram.
+const ACTIVE: Record<number, number[]> = { 2: [], 3: [2], 4: [1, 2] };
 
 const luma = ([r, g, b]: RGB) => Math.round(0.299 * r + 0.587 * g + 0.114 * b);
 
@@ -49,7 +51,7 @@ export function useTones(
   const active = ACTIVE[colours] ?? ACTIVE[4];
   // Changing the colour count can retire the selected slot; fall back to the
   // first one that still does something rather than leaving a dead selection.
-  const slot = active.includes(wanted) ? wanted : active[0];
+  const slot = active.includes(wanted) ? wanted : (active[0] ?? -1);
 
   // The tones in play must stay ordered light to dark: out of order, the
   // interpolation folds back on itself and the relief loses a level. Rather
@@ -58,7 +60,7 @@ export function useTones(
   // so. Only the *active* slots constrain each other: at two colours, Paper is
   // bounded by Ink alone, and the midtones it sits above are irrelevant.
   const pick = (colour: RGB) => {
-    if (!values) return;
+    if (!values || slot < 0) return;   // nothing to sample into at two colours
     const value = luma(colour);
     const pos = active.indexOf(slot);
     const upper = pos === 0 ? 255 : values[active[pos - 1]];

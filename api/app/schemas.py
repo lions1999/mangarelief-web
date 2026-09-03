@@ -46,6 +46,10 @@ class JobParams(BaseModel):
     color_changes_z: Optional[List[float]] = None
     halftone_threshold: int = Field(10, ge=1, le=100,
                                     description="Halftone %% above which 4-colour mode is used")
+    bw_coverage: Optional[float] = Field(
+        None, ge=0.0, le=1.0,
+        description="Two colours only: a zone prints as ink when at least this "
+                    "fraction of its area is inked. Omitted = 0.35.")
     color_mode: Optional[int] = Field(
         None, ge=2, le=4,
         description="How many filaments to print with. Omit to follow the "
@@ -150,3 +154,4 @@ class AnalysisResult(BaseModel):
     suggested_sampled_values: List[int]
     suggested_color_changes_z: List[float]
     suggested_accents: List[RGB]
+    bw_ink_level: int

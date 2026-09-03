@@ -6,7 +6,7 @@
  * this app is used in is "look at the model, go back, move a tone, generate
  * again"; destroying the picker on success would make that a page reload.
  */
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useEffect } from "react";
 import Dropzone from "./Dropzone";
 import PickableImage from "./PickableImage";
 import ProgressBar from "./ProgressBar";
@@ -30,6 +30,8 @@ interface Props {
   onView: (view: StageView) => void;
   onFile: (file: File) => void;
   onPick: (colour: RGB) => void;
+  /** Live: share of the artwork near the two-colour cut, from the preview call. */
+  onAmbiguity: (value: number | null) => void;
 }
 
 function expiryLabel(iso: string | null): string {
@@ -41,12 +43,13 @@ function expiryLabel(iso: string | null): string {
 }
 
 export default function Stage({
-  file, params, analysis, job, view, disabled, onView, onFile, onPick,
+  file, params, analysis, job, view, disabled, onView, onFile, onPick, onAmbiguity,
 }: Props) {
   const spot = params.mode === "spot_color";
+  const twoColours = (params.color_mode ?? analysis?.color_mode) === 2;
   const tones = params.sampled_values ?? analysis?.suggested_sampled_values;
 
-  const { url: mockup, busy: mockupBusy, error: mockupError } = useMockup(
+  const { url: mockup, busy: mockupBusy, error: mockupError, ambiguous } = useMockup(
     file,
     spot
       ? {
@@ -63,6 +66,7 @@ export default function Stage({
           color_mode: params.color_mode ?? analysis?.color_mode,
           sampled_values: tones ?? undefined,
           color_changes_z: params.color_changes_z ?? undefined,
+          bw_coverage: params.bw_coverage ?? undefined,
         },
     [
       params.mode,
@@ -71,8 +75,10 @@ export default function Stage({
       tones?.join(),
       params.color_mode,
       params.color_changes_z?.join(),
+      params.bw_coverage,
     ],
   );
+  useEffect(() => { onAmbiguity(ambiguous); }, [ambiguous, onAmbiguity]);
 
   const running = job?.status === "queued" || job?.status === "running";
   const done = job?.status === "done";
@@ -116,7 +122,9 @@ export default function Stage({
           {view === "art"
             ? spot
               ? "Click the artwork to pick the selected accent."
-              : "Click the artwork to sample the selected tone."
+              : twoColours
+                ? "Two colours: set the ink coverage in the sidebar. The preview follows."
+                : "Click the artwork to sample the selected tone."
             : done
               ? `Generated in ${job?.duration_s?.toFixed(1)}s`
               : ""}
@@ -127,7 +135,7 @@ export default function Stage({
         <div className="stage-art">
           <figure>
             <div className="frame">
-              <PickableImage file={file} disabled={disabled} onPick={onPick} />
+              <PickableImage file={file} disabled={disabled || (!spot && twoColours)} onPick={onPick} />
             </div>
             <figcaption>Source — click to sample · scroll to zoom, drag to pan</figcaption>
           </figure>

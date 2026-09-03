@@ -18,11 +18,23 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 
-from engine.color_utils import suggest_midtones, suggest_spot_accents
+from engine.color_utils import (bw_coverage_map, ink_level, suggest_midtones,
+                                suggest_spot_accents)
 
 # Same defaults as the desktop swatches: [white bg, L1 light, L2 dark, black]
 DEFAULT_SAMPLED = [250, 210, 150, 15]
 DEFAULT_HALFTONE_THRESHOLD = 10   # ui_main_window: slider_threshold starts at 10
+# Two-colour coverage cut when the caller does not choose one. Measured on a
+# real panel: keeps 86% of thin strokes (the legacy blur-and-threshold kept
+# 63%) while a 25%-hatched shadow still lands on the paper side.
+DEFAULT_BW_COVERAGE = 0.35
+# The warning heuristic: how much of the artwork sits within this distance of
+# the cut, measured on a wider window so a uniform screentone reads as one
+# area, and eroded so the band along every edge — which any line art has —
+# does not count. A clean panel scores ~3% at any cut; a half page of 40%
+# screentone scores ~50% when the cut is 0.35.
+BW_AMBIGUITY_BAND = 0.15
+BW_AMBIGUITY_WINDOW_MM = 2.0
 
 
 def filtered_gray(image_rgb: np.ndarray) -> np.ndarray:
@@ -118,6 +130,7 @@ def analyze(image_rgb: np.ndarray, base_h: float = 1.0, max_h: float = 2.4,
         "suggested_midtones": (int(l1), int(l2)),
         "suggested_sampled_values": [DEFAULT_SAMPLED[0], int(l1), int(l2), DEFAULT_SAMPLED[3]],
         "suggested_color_changes_z": auto_color_changes_z(base_h, max_h, layer_height, mode),
+        "bw_ink_level": int(ink_level(gray)),
         "suggested_accents": [tuple(int(c) for c in a)
                               for a in (suggest_spot_accents(image_rgb, n_accents=n_accents) or [])],
     }
@@ -158,7 +171,28 @@ def resolve_params(image_rgb: np.ndarray, params) -> Tuple[dict, dict]:
         "black_clip": black_clip,
         "sampled_values": list(sampled),
         "color_mode": color_mode,
+        "bw_coverage": ((params.bw_coverage if params.bw_coverage is not None
+                         else DEFAULT_BW_COVERAGE) if color_mode == 2 else None),
         "color_changes_z": list(changes),
         "spot_accents": accents,
         "spot_coverage": params.spot_coverage,
     }, info
+
+
+def bw_ambiguity(gray: np.ndarray, max_dim: float, max_res_cap: int, cut: float) -> float:
+    """Share of the artwork that would flip with a small move of the cut, 0..1.
+
+    Line art with hatching or screentone near the current cut is where two
+    colours misbehave: the whole shaded area lands on one side and moves to the
+    other with a nudge. This is that area, so the UI can say so instead of
+    letting the visitor discover it on the printer.
+    """
+    h, w = gray.shape[:2]
+    target_res = min(int(max_dim / 0.05), int(max_res_cap))
+    scale = target_res / max(h, w)
+    mm_per_px = max_dim / target_res
+    win = int(round(BW_AMBIGUITY_WINDOW_MM / mm_per_px)) | 1
+    frac = bw_coverage_map(gray, (int(w * scale), int(h * scale)), win)
+    near = (np.abs(frac - float(cut)) <= BW_AMBIGUITY_BAND).astype(np.uint8)
+    area = cv2.erode(near, np.ones((win, win), np.uint8))
+    return float(area.mean())

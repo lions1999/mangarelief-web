@@ -12,6 +12,8 @@ export interface JobParams {
   white_clip?: number | null;
   black_clip?: number | null;
   color_mode?: number | null;
+  /** Two colours only: fraction of a zone's area that must be inked to print as ink. */
+  bw_coverage?: number | null;
   sampled_values?: number[] | null;
   color_changes_z?: number[] | null;
   spot_accents: RGB[];
@@ -29,6 +31,7 @@ export interface Analysis {
   suggested_sampled_values: number[];
   suggested_color_changes_z: number[];
   suggested_accents: RGB[];
+  bw_ink_level: number;
 }
 
 export type JobStatus = "queued" | "running" | "done" | "error" | "expired";

@@ -27,7 +27,7 @@ from engine import (GenerationMode, GenerationParams, prepare_source_image,
                     standard_heightmap)
 from engine.color_utils import classify_spot_pixels, downsample_for_analysis
 
-from .analysis import analyze, engine_input, resolve_params
+from .analysis import analyze, bw_ambiguity, engine_input, resolve_params
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import QueueFull, runner
@@ -68,6 +68,11 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    # Custom headers are invisible to cross-origin JavaScript unless listed
+    # here. Notes rode on the job response from day one and the frontend read
+    # null every time — the free-tier message never reached anyone.
+    expose_headers=["X-MangaRelief-Notes", "X-MangaRelief-Ambiguous",
+                    "X-MangaRelief-Expires-At"],
 )
 
 CONTENT_TYPES = {"stl": "model/stl", "3mf": "model/3mf"}
@@ -260,6 +265,7 @@ def mockup(
     p = parse_params(params)
     rgb = decode_or_422(read_upload(image))
     small = downsample_for_analysis(rgb, MOCKUP_MAX_PX)
+    extra_headers: dict = {}
 
     if p.mode.value == "spot_color":
         accents = [tuple(a) for a in p.spot_accents]
@@ -287,8 +293,14 @@ def mockup(
         # 20 MP upload, so there is nothing to buy by cutting it short.
         engine_kwargs, _ = resolve_params(rgb, p)
         params = GenerationParams(mode=GenerationMode.STANDARD, **engine_kwargs)
-        z = standard_heightmap(
-            prepare_source_image(engine_input(rgb, "standard"), params), params)
+        source = engine_input(rgb, "standard")
+        z = standard_heightmap(prepare_source_image(source, params), params)
+        if params.color_mode == 2 and params.bw_coverage is not None:
+            # Rides along with the preview because it depends on the cut the
+            # visitor is dragging right now; a number computed once at upload
+            # would describe a different setting.
+            extra_headers["X-MangaRelief-Ambiguous"] = "%.4f" % bw_ambiguity(
+                source, params.max_dim, params.max_res_cap, params.bw_coverage)
 
         changes = [c for c in params.color_changes_z if c > 0]
         tones = _band_tones(params.sampled_values, params.color_mode)
@@ -316,7 +328,7 @@ def mockup(
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "preview encoding failed")
 
     return Response(content=buf.tobytes(), media_type="image/png",
-                    headers={"Cache-Control": "no-store"})
+                    headers={"Cache-Control": "no-store", **extra_headers})
 
 
 @app.post("/api/jobs", response_model=JobCreated, status_code=status.HTTP_202_ACCEPTED)

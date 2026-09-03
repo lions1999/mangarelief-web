@@ -12,8 +12,13 @@ interface Props {
   params: JobParams;
   analysis: Analysis | null;
   disabled: boolean;
+  /** From the live preview: share of the artwork that flips with a nudge of the two-colour cut. */
+  ambiguous: number | null;
   onChange: (patch: Partial<JobParams>) => void;
 }
+
+/** Above this, two colours is the wrong tool for the artwork, not a setting to tune. */
+const AMBIGUOUS_WARN = 0.10;
 
 const MODES: { value: Mode; label: string; blurb: string }[] = [
   {
@@ -28,7 +33,7 @@ const MODES: { value: Mode; label: string; blurb: string }[] = [
   },
 ];
 
-export default function LookPanel({ params, analysis, disabled, onChange }: Props) {
+export default function LookPanel({ params, analysis, disabled, ambiguous, onChange }: Props) {
   const colours = params.color_mode ?? analysis?.color_mode ?? 4;
 
   return (
@@ -71,6 +76,18 @@ export default function LookPanel({ params, analysis, disabled, onChange }: Prop
             printing. The analysis found {analysis.halftone_pct.toFixed(1)}%
             halftones, which suits {analysis.color_mode}.
           </p>
+          {colours === 2 && ambiguous !== null && ambiguous >= AMBIGUOUS_WARN && (
+            <p className="hint warn">
+              {/* Not "halftones": that number counts anti-aliasing on every
+                  edge and flags clean line art too. This is the area that
+                  actually sits near the cut — hatching and screentone — and
+                  it moves with the slider. */}
+              About {Math.round(ambiguous * 100)}% of this artwork is shading
+              close to the current cut: it will print all ink or all paper, and
+              flip with a small move of the slider. With 3 or 4 colours it
+              becomes a tone instead.
+            </p>
+          )}
         </>
       )}
     </section>

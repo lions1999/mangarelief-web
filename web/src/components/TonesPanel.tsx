@@ -15,17 +15,53 @@ import { TONE_LABELS, type Tones } from "../hooks/useTones";
 interface Props {
   tones: Tones;
   disabled: boolean;
+  /** Two colours: the coverage cut, 0..1, and the ink level the analysis found. */
+  coverage: number;
+  inkLevel: number | null;
+  onCoverage: (value: number) => void;
 }
 
 const greyHex = (v: number) => "#" + v.toString(16).padStart(2, "0").repeat(3);
 
-export default function TonesPanel({ tones, disabled }: Props) {
+export default function TonesPanel({ tones, disabled, coverage, inkLevel, onCoverage }: Props) {
   const { values, active, colours, slot, manual, picked } = tones;
   if (!values) return null;
 
-  // At two colours there is one number that matters and it is not on a
-  // swatch: everything darker than the midpoint of Paper and Ink becomes ink.
-  const threshold = Math.round((values[0] + values[3]) / 2);
+  // Two colours is a different control entirely. There is no tone to sample:
+  // the image decides what counts as ink, and the one question left is how
+  // loaded a shaded area must be before it prints black.
+  if (colours === 2) {
+    const pct = Math.round(coverage * 100);
+    return (
+      <section className="panel">
+        <h2>Ink coverage</h2>
+        <label className="field">
+          <span>
+            Shading darker than <em>{pct}%</em>
+          </span>
+          <input
+            type="range"
+            min={10}
+            max={90}
+            step={5}
+            value={pct}
+            disabled={disabled}
+            onChange={(e) => onCoverage(Number(e.target.value) / 100)}
+          />
+        </label>
+        <p className="hint">
+          A zone prints as ink when at least {pct}% of its area is inked, judged
+          over about 0.7 mm — what the nozzle can resolve. Lower keeps more
+          hatching black; higher keeps more of it paper. Fine linework survives
+          either way.
+          {inkLevel !== null && (
+            <> Ink here is anything darker than {inkLevel}, read from the image's histogram.</>
+          )}
+        </p>
+      </section>
+    );
+  }
+
 
   return (
     <section className="panel">
@@ -64,14 +100,6 @@ export default function TonesPanel({ tones, disabled }: Props) {
         )}
       </p>
 
-      {colours === 2 && (
-        <p className="hint">
-          Everything darker than <strong>{threshold}</strong> prints as ink —
-          that is the midpoint of these two. Dense hatching averages into a grey
-          once the image is scaled down, so a shaded face can fall on the ink
-          side of it: sample the face into Paper to bring the line down.
-        </p>
-      )}
     </section>
   );
 }

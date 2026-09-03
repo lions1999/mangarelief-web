@@ -47,14 +47,21 @@ export async function mockup(
   file: File,
   params: Partial<JobParams>,
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<{ url: string; ambiguous: number | null }> {
   const res = await fetch(`${BASE}/api/mockup`, {
     method: "POST",
     body: form(file, params),
     signal,
   });
   if (!res.ok) return failure(res);
-  return URL.createObjectURL(await res.blob());
+  // Two colours only: the server says how much of the artwork sits near the
+  // coverage cut, on the same call that draws it, so the warning tracks the
+  // slider instead of describing the upload-time default.
+  const ambiguousRaw = res.headers.get("X-MangaRelief-Ambiguous");
+  return {
+    url: URL.createObjectURL(await res.blob()),
+    ambiguous: ambiguousRaw === null ? null : Number(ambiguousRaw),
+  };
 }
 
 export async function createJob(

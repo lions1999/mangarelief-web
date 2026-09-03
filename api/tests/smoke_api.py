@@ -206,10 +206,10 @@ def png_size(blob: bytes):
     return int.from_bytes(blob[16:20], "big"), int.from_bytes(blob[20:24], "big")
 
 
-def mockup(params: dict | None = None):
+def mockup(params: dict | None = None, headers: dict | None = None):
     files = {"image": ("panel.png", io.BytesIO(IMG), "image/png")}
     data = {"params": json.dumps(params)} if params else {}
-    return client.post("/api/mockup", files=files, data=data)
+    return client.post("/api/mockup", files=files, data=data, headers=headers or {})
 
 
 r = mockup({"mode": "standard"})
@@ -331,8 +331,9 @@ for n in (2, 3, 4):
     check(f"{n} colori: la riduzione non inventa toni",
           set(np.unique(vista).tolist()) <= set(toni), np.unique(vista).tolist())
 
-# A 2 colori gli swatch SONO la modalita': se l'anteprima non li segue, non
-# c'e' modo di calibrare la soglia guardando il risultato.
+# A 2 colori il controllo e' la copertura (sotto), non gli swatch: Paper e Ink
+# possono muoversi quanto vogliono e l'anteprima — come la mesh — non deve
+# cambiare. E' l'invarianza che rende sensato aver tolto quegli swatch dalla UI.
 quote = []
 for paper in (250, 200, 150, 100):
     sv = [paper, 210, 150, 15]
@@ -349,8 +350,50 @@ for paper in (250, 200, 150, 100):
     quote.append(round(ink_vista, 3))
     check(f"2 colori, Paper={paper}: anteprima e mesh d'accordo",
           abs(ink_mesh - ink_vista) < 0.01, (round(ink_mesh, 3), round(ink_vista, 3)))
-check("2 colori: l'anteprima si muove quando si muove la soglia",
-      len(set(quote)) > 1, quote)
+check("2 colori: gli swatch non muovono piu' nulla (il controllo e' la copertura)",
+      len(set(quote)) == 1, quote)
+
+# ----------------------------------------------- 2 colori: taglio di copertura
+# A 2 colori il controllo e' la copertura, non gli swatch: l'inchiostro deve
+# calare in modo monotono al crescere del taglio, l'endpoint deve dire quanta
+# area sta vicino al taglio, e l'analisi deve riportare il livello d'inchiostro.
+check("analyze: livello d'inchiostro (Otsu) riportato",
+      isinstance(info.get("bw_ink_level"), int) and 0 < info["bw_ink_level"] < 255,
+      info.get("bw_ink_level"))
+inks, ambig = [], []
+for cut in (0.2, 0.35, 0.5, 0.7):
+    r = mockup({"mode": "standard", "color_mode": 2, "bw_coverage": cut})
+    check(f"copertura {cut}: mockup 200", r.status_code == 200, r.status_code)
+    img_c = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+    inks.append(float((img_c == sampled[3]).mean()))
+    ambig.append(r.headers.get("x-mangarelief-ambiguous"))
+check("copertura: l'inchiostro cala al crescere del taglio",
+      all(a >= b for a, b in zip(inks, inks[1:])), [round(v, 3) for v in inks])
+check("copertura: il taglio ha effetto", inks[0] > inks[-1], (inks[0], inks[-1]))
+# Gli header custom vanno dichiarati alla CORS, altrimenti il browser li
+# nasconde a JavaScript: la nota sui limiti del piano gratuito viaggiava dal
+# primo giorno e il frontend leggeva null ogni volta.
+r_cors = mockup({"mode": "standard", "color_mode": 2, "bw_coverage": 0.35},
+                headers={"Origin": "https://mangarelief-web.pages.dev"})
+esposti = r_cors.headers.get("access-control-expose-headers", "").lower()
+check("CORS: gli header custom sono esposti al browser",
+      all(h in esposti for h in ("x-mangarelief-ambiguous", "x-mangarelief-notes",
+                                 "x-mangarelief-expires-at")), esposti)
+check("copertura: l'endpoint riporta l'ambiguita'",
+      all(a is not None and 0.0 <= float(a) <= 1.0 for a in ambig), ambig)
+check("copertura fuori range -> 422",
+      mockup({"mode": "standard", "color_mode": 2, "bw_coverage": 1.5}).status_code == 422)
+r = mockup({"mode": "standard", "color_mode": 4, "bw_coverage": 0.3})
+check("a 4 colori la copertura viene ignorata e non produce l'header",
+      r.status_code == 200 and r.headers.get("x-mangarelief-ambiguous") is None)
+# anche il job vero deve accettarla e produrre un oggetto a due quote
+r = upload({"mode": "standard", "max_dim": 60, "max_res_cap": 300, "color_mode": 2,
+            "bw_coverage": 0.3})
+check("job con copertura: accettato", r.status_code == 202, r.text[:120])
+bj = wait_for(r.json()["job_id"])
+check("job con copertura: completato con un cambio filamento",
+      bj["status"] == "done" and len(bj["filament_changes"]) == 1,
+      bj.get("error") or bj.get("filament_changes"))
 
 # Il pannello di prova non ha nero pieno (le linee stanno a 25, sopra il
 # black_clip), quindi la banda d'inchiostro non esiste: e' corretto che non

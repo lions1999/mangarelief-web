@@ -33,6 +33,7 @@ export default function App() {
   const [notes, setNotes] = useState<string | null>(null);
   const [token, setToken] = useState("");
   const [view, setView] = useState<StageView>("art");
+  const [ambiguous, setAmbiguous] = useState<number | null>(null);
   const poll = useRef<number | undefined>(undefined);
   const stage = useRef<HTMLDivElement>(null);
 
@@ -134,6 +135,7 @@ export default function App() {
             params={params}
             analysis={analysis}
             disabled={busy}
+            ambiguous={ambiguous}
             onChange={patch}
           />
 
@@ -141,7 +143,13 @@ export default function App() {
               the preview on the stage answers to, and they are why anyone is
               looking at the artwork in the first place. */}
           {file && params.mode === "standard" && (
-            <TonesPanel tones={tones} disabled={busy} />
+            <TonesPanel
+              tones={tones}
+              disabled={busy}
+              coverage={params.bw_coverage ?? 0.35}
+              inkLevel={analysis?.bw_ink_level ?? null}
+              onCoverage={(v) => patch({ bw_coverage: v })}
+            />
           )}
 
           {file && params.mode === "spot_color" && (
@@ -181,6 +189,7 @@ export default function App() {
           onView={setView}
           onFile={onFile}
           onPick={onPick}
+          onAmbiguity={setAmbiguous}
         />
       </main>
     </div>

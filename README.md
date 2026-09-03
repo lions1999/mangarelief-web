@@ -37,7 +37,10 @@ Interactive docs at `/docs` once running.
 
 ### `POST /api/mockup`
 Multipart: `image` (file), optional `params` (JSON). Returns a small PNG of how
-the image will be classified. Spot Colour cannot be tuned without it — accents
+the image will be classified. With two colours the response also carries
+`X-MangaRelief-Ambiguous`: the share of the artwork sitting near the coverage
+cut — hatching or screentone that will print all ink or all paper and flip with
+a nudge of the slider. The UI warns above 10%. Spot Colour cannot be tuned without it — accents
 and coverage are unjudgeable as numbers — and it is cheap enough to call on
 every slider move (debounced). Phase 4 replaces it with a client-side port.
 
@@ -85,6 +88,7 @@ by `.github/workflows/cleanup.yml`.
 | `white_clip` / `black_clip` | derived | | From the highlight histogram peak |
 | `sampled_values` | derived | 4 values | `[white, L1, L2, black]` |
 | `color_changes_z` | derived | 3 values | Auto-Z, snapped to the layer height |
+| `bw_coverage` | 0.35 | 0–1 | Two colours only: a zone prints as ink when at least this share of its area is inked, judged over ~0.7 mm. The image's histogram decides what counts as ink |
 | `spot_accents` | detected | ≤ 2 RGB triples | |
 | `spot_coverage` | 40 | 0–100 | How far an accent spreads into muted tones |
 
