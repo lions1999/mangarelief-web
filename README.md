@@ -31,6 +31,40 @@ picker or physical presets that only make sense inside the desktop UI.
 
 ---
 
+## How it runs
+
+Three services, each doing one thing. The browser talks to two of them; only
+the API ever touches the database.
+
+```
+   browser
+      │
+      ├──► Cloudflare Pages   the site: HTML, CSS, JS. Static files, no logic.
+      │
+      └──► Cloud Run          the API: analysis, generation, downloads.
+                 │
+                 └──► Supabase   Postgres row per job + private file bucket.
+```
+
+That separation is why CORS matters here: the page and the API are on different
+origins, so the API has to name the site explicitly. It is also why the
+service-role key is safe — it lives only in the API's environment and never
+reaches a browser.
+
+A generation, end to end:
+
+1. The page loads from Pages. From then on the browser calls the API directly.
+2. `POST /api/analyze` on upload — halftone percentage, colour mode, tones.
+3. `POST /api/mockup` on every slider move (debounced): the same two engine
+   steps the job runs, so the preview *is* the classification.
+4. `POST /api/jobs` writes the row to Supabase, answers `202`, and generates in
+   a background thread.
+5. The browser polls `GET /api/jobs/{id}` every 1.2s, reading that row.
+6. On success the files go to the Supabase bucket and the row records them.
+7. Downloads stream through the API, which is what enforces expiry.
+8. A nightly GitHub Action calls the cleanup endpoint, which deletes what has
+   expired.
+
 ## API
 
 Interactive docs at `/docs` once running.
@@ -170,6 +204,31 @@ build time, so changing it needs a rebuild, not just a restart.
 
 **Nightly cleanup** needs `API_URL` and `CLEANUP_TOKEN` as repository secrets;
 the same `CLEANUP_TOKEN` goes into the backend's environment.
+
+### Environment
+
+Everything is an env var, so the same image runs locally and in production.
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `VITE_API_URL` | Pages, **build time** | The Cloud Run URL. Vite inlines it into the bundle, so changing it needs a rebuild, not a restart. Absent, the frontend falls back to `localhost:8080` |
+| `SUPABASE_URL` | Cloud Run | Project URL. **Absent, the service silently runs in local mode** — SQLite inside the container, files lost on restart |
+| `SUPABASE_SERVICE_KEY` | Cloud Run | Service-role key: bypasses row level security. Server-side only, never in a browser |
+| `SUPABASE_BUCKET` | Cloud Run | Bucket for the produced files. Default `generations` |
+| `CORS_ORIGINS` | Cloud Run | Comma-separated origins allowed to call the API. A trailing slash used to break every call; it is stripped on read now |
+| `CLEANUP_TOKEN` | Cloud Run **and** GitHub | Shared secret for the cleanup endpoint. Must match on both sides; empty gives `503`, wrong gives `401` |
+| `IP_HASH_SALT` | Cloud Run | Salt for the stored IP hashes. **Leaving it unset keeps the public default from the source, which makes those hashes reversible by anyone** |
+| `API_URL` | GitHub secret | Where the nightly cleanup job posts |
+| `TURNSTILE_SECRET` / `VITE_TURNSTILE_SITE_KEY` | Cloud Run / Pages | Optional captcha. Unset means no challenge |
+| `RETENTION_HOURS`, `POST_DOWNLOAD_HOURS` | Cloud Run | 48 and 24 |
+| `MAX_UPLOAD_BYTES`, `MAX_IMAGE_PIXELS` | Cloud Run | 12 MB, 40 MP |
+| `ANON_RATE_LIMIT`, `ANON_RATE_WINDOW_S` | Cloud Run | 5 per hour per IP |
+| `ANON_MAX_RES_CAP`, `ANON_MAX_DIM_MM` | Cloud Run | 800 px, 200 mm — the free tier, and the RAM ceiling |
+| `MAX_WORKERS`, `MAX_QUEUE`, `JOB_TIMEOUT_S` | Cloud Run | 1, 8, 600 |
+
+`/healthz` reports which backend is live: `"backend":"supabase"` or
+`"backend":"local"`. If a deploy that should be talking to Supabase says
+`local`, its credentials are missing.
 
 ### Supabase
 
