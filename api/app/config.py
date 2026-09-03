@@ -67,8 +67,15 @@ class Settings:
     max_queue: int = field(default_factory=lambda: _env_int("MAX_QUEUE", 8))
     job_timeout_s: int = field(default_factory=lambda: _env_int("JOB_TIMEOUT_S", 600))
 
+    # Browsers compare the Origin header byte for byte, so a trailing slash or
+    # stray whitespace in this variable silently breaks every call: the request
+    # still reaches the server (a multipart POST needs no preflight, so the row
+    # is written) but the browser discards the response and the page appears to
+    # do nothing. Normalising here removes the commonest way to get that.
     cors_origins: List[str] = field(
-        default_factory=lambda: [o for o in _env("CORS_ORIGINS", "*").split(",") if o]
+        default_factory=lambda: [o.strip().rstrip("/")
+                                 for o in _env("CORS_ORIGINS", "*").split(",")
+                                 if o.strip()]
     )
 
     @property

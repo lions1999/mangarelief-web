@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 from urllib.parse import urlparse
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import (Depends, FastAPI, Form, Header, HTTPException, Request,
                      Response, UploadFile, File, status)
@@ -45,9 +46,23 @@ app = FastAPI(
     description="Turns 2D artwork into terraced 3D-printable meshes (STL + Bambu 3MF).",
 )
 
+def _preview_origin_regex(origins: List[str]) -> Optional[str]:
+    """Also allow the per-deployment preview URLs of a Cloudflare Pages project.
+
+    Pages serves every build at <hash>.<project>.pages.dev as well as at the
+    production hostname. Testing on one of those would otherwise fail CORS for
+    no obvious reason. Only subdomains of the configured project are allowed,
+    not pages.dev at large.
+    """
+    projects = [re.escape(host) for o in origins
+                if (host := o.removeprefix("https://")).endswith(".pages.dev")]
+    return r"https://[a-z0-9-]+\.(" + "|".join(projects) + ")" if projects else None
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins or ["*"],
+    allow_origin_regex=_preview_origin_regex(settings.cors_origins),
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],

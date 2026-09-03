@@ -250,6 +250,26 @@ check("cleanup deleted its files", r.json()["files_deleted"] >= 2, r.json())
 check("cleaned job has no artifacts",
       client.get(f"/api/jobs/{job_id}").json()["artifacts"] == [])
 
+# ------------------------------------------------------------------- CORS
+# Due righe nella tabella e una pagina che "non fa nulla" e' la firma di un
+# CORS che non combacia: il POST multipart non ha preflight, quindi arriva e
+# scrive la riga, ma il browser scarta la risposta.
+from app.config import Settings  # noqa: E402
+
+os.environ["CORS_ORIGINS"] = " https://mangarelief-web.pages.dev/ , https://esempio.it "
+normalizzate = Settings().cors_origins
+check("CORS: barra finale e spazi normalizzati",
+      normalizzate == ["https://mangarelief-web.pages.dev", "https://esempio.it"],
+      normalizzate)
+del os.environ["CORS_ORIGINS"]
+
+r = client.post("/api/analyze",
+                files={"image": ("panel.png", io.BytesIO(IMG), "image/png")},
+                headers={"Origin": "https://mangarelief-web.pages.dev"})
+check("CORS: risposta con Access-Control-Allow-Origin",
+      "access-control-allow-origin" in {k.lower() for k in r.headers},
+      dict(r.headers).get("access-control-allow-origin"))
+
 # --------------------------------- cleanup: ogni errore deve avere un nome
 # Il cleanup rispondeva 500 "Internal Server Error" perche' intercettavo solo
 # gli errori HTTP: un problema di connessione o di URL cadeva fuori.
