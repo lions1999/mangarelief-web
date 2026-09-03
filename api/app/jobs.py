@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List
+from typing import Optional, Any, Dict, List
 
 import numpy as np
 
@@ -39,6 +40,41 @@ class QueueFull(RuntimeError):
     pass
 
 
+_STEM_MAX = 60
+
+
+def safe_stem(filename: Optional[str]) -> Optional[str]:
+    """The uploaded file's name, reduced to something safe to put in a path
+    and in a Content-Disposition header.
+
+    Client-supplied: strip directories and the extension, keep only
+    [A-Za-z0-9_-], fold runs of anything else into one underscore, cap the
+    length. Returns None when nothing usable is left, so the caller falls back
+    to the job id rather than producing "_mangarelief_standard.stl".
+    """
+    if not filename:
+        return None
+    name = os.path.basename(filename.replace("\\", "/"))
+    name = os.path.splitext(name)[0]
+    name = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_-")
+    name = name[:_STEM_MAX].rstrip("_-")
+    return name or None
+
+
+def output_stem(source_stem: Optional[str], mode: str, color_mode: Optional[int],
+                job_id: str) -> str:
+    """`<image>_mangarelief_<mode>[_<N>col]`, the desktop's `<image>_3D` idea
+    carried over: the artwork's name first so one panel's generations sort
+    together, then what was done to it. The colour count is the one setting
+    that tells two Standard runs of the same panel apart days later, so it is
+    in the name. Without a usable source name the job id keeps files unique.
+    """
+    tag = f"{mode}_{int(color_mode)}col" if (mode == "standard" and color_mode) else mode
+    if source_stem:
+        return f"{source_stem}_mangarelief_{tag}"
+    return f"mangarelief_{tag}_{job_id[:8]}"
+
+
 class JobRunner:
     def __init__(self):
         self._pool = ThreadPoolExecutor(max_workers=settings.max_workers,
@@ -51,15 +87,17 @@ class JobRunner:
         with self._lock:
             return self._pending
 
-    def submit(self, job_id: str, image: np.ndarray, mode: str, engine_kwargs: Dict[str, Any]):
+    def submit(self, job_id: str, image: np.ndarray, mode: str, engine_kwargs: Dict[str, Any],
+               source_stem: Optional[str] = None):
         with self._lock:
             if self._pending >= settings.max_queue:
                 raise QueueFull(f"{self._pending} jobs already queued or running")
             self._pending += 1
-        self._pool.submit(self._run, job_id, image, mode, engine_kwargs)
+        self._pool.submit(self._run, job_id, image, mode, engine_kwargs, source_stem)
 
     # ------------------------------------------------------------------
-    def _run(self, job_id: str, image: np.ndarray, mode: str, engine_kwargs: Dict[str, Any]):
+    def _run(self, job_id: str, image: np.ndarray, mode: str, engine_kwargs: Dict[str, Any],
+             source_stem: Optional[str] = None):
         store = get_store()
         storage = get_storage()
         started = time.time()
@@ -83,7 +121,7 @@ class JobRunner:
                                   "message": "Starting..."})
 
             with tempfile.TemporaryDirectory(prefix=f"mr-{job_id}-") as tmp:
-                stem = f"mangarelief_{mode}_{job_id[:8]}"
+                stem = output_stem(source_stem, mode, engine_kwargs.get("color_mode"), job_id)
                 stl_path = os.path.join(tmp, stem + ".stl")
                 mf3_path = os.path.join(tmp, stem + ".3mf")
 

@@ -30,7 +30,7 @@ from engine.color_utils import classify_spot_pixels, downsample_for_analysis
 from .analysis import analyze, bw_ambiguity, engine_input, resolve_params
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
-from .jobs import QueueFull, runner
+from .jobs import safe_stem, QueueFull, runner
 from .limits import clamp_to_anonymous_tier, hash_ip, limiter, turnstile_ok
 from .schemas import (AnalysisResult, Artifact, FilamentChange, JobCreated,
                       JobParams, JobStatus, JobView)
@@ -331,6 +331,15 @@ def mockup(
                     headers={"Cache-Control": "no-store", **extra_headers})
 
 
+def _disposition(kind: str, filename: str) -> str:
+    """Both forms: the plain one for old clients, filename* for anything
+    outside ASCII. The stems are ASCII by construction, but the header is the
+    wrong place to rely on that."""
+    from urllib.parse import quote
+    plain = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
+    return f"{kind}; filename=\"{plain}\"; filename*=UTF-8''{quote(filename)}"
+
+
 @app.post("/api/jobs", response_model=JobCreated, status_code=status.HTTP_202_ACCEPTED)
 def create_job(
     request: Request,
@@ -398,7 +407,8 @@ def create_job(
                             f"could not record the job: {_describe(exc)}") from exc
 
     try:
-        runner.submit(job_id, rgb, p.mode.value, engine_kwargs)
+        runner.submit(job_id, rgb, p.mode.value, engine_kwargs,
+                      source_stem=safe_stem(image.filename))
     except QueueFull as exc:
         get_store().update(job_id, {"status": JobStatus.ERROR.value,
                                     "message": "Busy", "error": str(exc)})
@@ -455,7 +465,7 @@ def download_artifact(job_id: str, kind: str, preview: bool = False):
             content=data,
             media_type=CONTENT_TYPES[kind],
             headers={
-                "Content-Disposition": f'inline; filename="{artifact["filename"]}"',
+                "Content-Disposition": _disposition("inline", artifact["filename"]),
                 "X-MangaRelief-Expires-At": record.get("expires_at") or "",
             },
         )
@@ -471,7 +481,7 @@ def download_artifact(job_id: str, kind: str, preview: bool = False):
         content=data,
         media_type=CONTENT_TYPES[kind],
         headers={
-            "Content-Disposition": f'attachment; filename="{artifact["filename"]}"',
+            "Content-Disposition": _disposition("attachment", artifact["filename"]),
             "X-MangaRelief-Expires-At": fields["expires_at"],
         },
     )

@@ -61,8 +61,8 @@ IMG = panel_png()
 client = TestClient(app)
 
 
-def upload(params: dict | None = None):
-    files = {"image": ("panel.png", io.BytesIO(IMG), "image/png")}
+def upload(params: dict | None = None, filename: str = "panel.png"):
+    files = {"image": (filename, io.BytesIO(IMG), "image/png")}
     data = {"params": json.dumps(params)} if params else {}
     return client.post("/api/jobs", files=files, data=data)
 
@@ -169,6 +169,41 @@ check("job draft: la mesh e' passata dalla decimazione", len(mesh.faces) < 200_0
 check("job draft: STL watertight dopo la decimazione", mesh.is_watertight,
       f"aperti {int((edge_count == 1).sum())}, non-manifold {int((edge_count > 2).sum())}")
 check("job draft: normali coerenti", mesh.volume > 0, round(float(mesh.volume), 1))
+
+# ------------------------------------------- i file portano il nome dell'opera
+# <immagine>_mangarelief_<modalita'>[_<N>col]: prima il nome dell'artwork, cosi'
+# le generazioni di uno stesso pannello si ordinano insieme; il nome arriva dal
+# client e va ridotto a qualcosa di sicuro per un path e per un header.
+from app.jobs import output_stem, safe_stem  # noqa: E402
+check("safe_stem: spazi, punti e parentesi -> underscore, senza estensione",
+      safe_stem("Gol D. Roger (cap 967).jpeg") == "Gol_D_Roger_cap_967", safe_stem("Gol D. Roger (cap 967).jpeg"))
+check("safe_stem: niente directory", safe_stem("../../etc/passwd") == "passwd", safe_stem("../../etc/passwd"))
+check("safe_stem: solo simboli -> None", safe_stem("   ") is None and safe_stem("日本.png") is None)
+check("safe_stem: troncato", len(safe_stem("a" * 200 + ".png") or "") <= 60)
+check("output_stem: nome + modalita' + colori",
+      output_stem("roger", "standard", 2, "cf35a1b2ff") == "roger_mangarelief_standard_2col")
+check("output_stem: senza nome torna all'id",
+      output_stem(None, "spot_color", None, "cf35a1b2ff") == "mangarelief_spot_color_cf35a1b2")
+
+r = upload({"mode": "standard", "max_dim": 60, "max_res_cap": 300, "color_mode": 4},
+           filename="Gol D. Roger (cap 967).jpeg")
+check("job con nome: accettato", r.status_code == 202, r.text[:120])
+named = wait_for(r.json()["job_id"])
+names = sorted(a["filename"] for a in named.get("artifacts", []))
+check("gli artifact portano il nome dell'immagine, la modalita' e i colori",
+      names == ["Gol_D_Roger_cap_967_mangarelief_standard_4col.3mf",
+                "Gol_D_Roger_cap_967_mangarelief_standard_4col.stl"], names)
+d = client.get(f"/api/jobs/{named['job_id']}/artifacts/stl")
+cd = d.headers.get("content-disposition", "")
+check("download: Content-Disposition con il nome e la forma RFC 5987",
+      'filename="Gol_D_Roger_cap_967_mangarelief_standard_4col.stl"' in cd and "filename*=UTF-8''" in cd, cd)
+
+r = upload({"mode": "spot_color", "max_dim": 60, "max_res_cap": 300, "spot_accents": [[231, 47, 55]]},
+           filename="   .png")
+anon = wait_for(r.json()["job_id"])
+check("nome inutilizzabile: si torna all'id, mai a '_mangarelief_'",
+      all(a["filename"].startswith("mangarelief_spot_color_") for a in anon.get("artifacts", [])),
+      [a["filename"] for a in anon.get("artifacts", [])])
 
 # ---------------------------------------------------------- retention policy
 after = client.get(f"/api/jobs/{job_id}").json()

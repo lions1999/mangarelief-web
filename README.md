@@ -67,7 +67,9 @@ Status, progress percentage and message (the same strings the desktop progress
 bar shows), plus artifact links and the expiry timestamp once finished.
 
 ### `GET /api/jobs/{id}/artifacts/{stl|3mf}`
-Streams the file. **The first download shortens the retention window to 24h.**
+Streams the file, named `<image>_mangarelief_<mode>[_<N>col].stl` after the
+uploaded artwork (reduced to `[A-Za-z0-9_-]`; the job id stands in when nothing
+usable is left). **The first download shortens the retention window to 24h.**
 Add `?preview=true` for the in-page viewer: same bytes, served inline, and it
 does *not* start the countdown — looking at a model in the browser is not taking
 it.
