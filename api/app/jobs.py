@@ -21,6 +21,8 @@ import numpy as np
 
 from engine import GenerationMode, GenerationParams, generate
 
+from .analysis import engine_input
+
 from .config import settings
 from .storage import get_storage
 from .store import default_expiry, get_store, iso, utcnow
@@ -92,8 +94,8 @@ class JobRunner:
                     source_image_name=stem,
                     **engine_kwargs,
                 )
-                result = generate(image, params, progress=on_progress,
-                                  should_cancel=should_cancel)
+                result = generate(engine_input(image, mode), params,
+                                  progress=on_progress, should_cancel=should_cancel)
 
                 artifacts: List[Dict[str, Any]] = []
                 for kind, path, ctype in (

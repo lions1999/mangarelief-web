@@ -31,6 +31,21 @@ def filtered_gray(image_rgb: np.ndarray) -> np.ndarray:
     return cv2.bilateralFilter(gray, d=5, sigmaColor=50, sigmaSpace=50)
 
 
+def engine_input(image_rgb: np.ndarray, mode: str) -> np.ndarray:
+    """L'array che l'engine deve ricevere per questa modalità.
+
+    Standard lavora sul grigio bilateral-filtrato: è quello che l'app desktop
+    passa al worker (`manga_to_3d`: `img_filtered_array`), e saltarlo lascia il
+    rumore di compressione dentro le terrazze. Le modalità a colori vogliono
+    l'RGB originale.
+
+    Esiste come funzione, e non come due righe in `jobs.py`, perché il job e
+    l'anteprima devono partire dalla stessa immagine: quando divergevano,
+    l'anteprima filtrava e la mesh no.
+    """
+    return filtered_gray(image_rgb) if mode == "standard" else image_rgb
+
+
 def halftone_pct(gray: np.ndarray) -> float:
     """Share of pixels that are neither near-black nor near-white."""
     midtone = np.count_nonzero((gray > 30) & (gray < 225))

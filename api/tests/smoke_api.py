@@ -265,6 +265,73 @@ check("a 3 colori il midtone copre la stessa area che a 2 colori e' inchiostro",
 check("a 3 colori il midtone non e' finito sotto il piano di base",
       sampled[2] in np.unique(tre).tolist(), np.unique(tre).tolist())
 
+# ------------------- l'anteprima deve ESSERE la classificazione, non somigliarle
+# Ricostruiamo qui quello che fa il job — stesso ingresso, stessi due passi
+# dell'engine — e pretendiamo che l'anteprima coincida. Saltando
+# prepare_source_image il mockup mostrava tutt'altro: 11-15% dei pixel su una
+# bobina diversa, e a 2 colori un'immagine che non si muoveva affatto.
+from engine import GenerationParams, GenerationMode, prepare_source_image, standard_heightmap  # noqa: E402
+from app.analysis import engine_input, resolve_params  # noqa: E402
+from app.schemas import JobParams  # noqa: E402
+
+rgb_ref = cv2.cvtColor(cv2.imdecode(np.frombuffer(IMG, np.uint8), cv2.IMREAD_COLOR),
+                       cv2.COLOR_BGR2RGB)
+
+
+def classificazione(color_mode, sampled_values=None):
+    """Le bande e i toni che la mesh produrra' davvero."""
+    jp = JobParams(mode="standard", color_mode=color_mode,
+                   **({"sampled_values": sampled_values} if sampled_values else {}))
+    par = GenerationParams(mode=GenerationMode.STANDARD, **resolve_params(rgb_ref, jp)[0])
+    z = standard_heightmap(prepare_source_image(engine_input(rgb_ref, "standard"), par), par)
+    b = np.zeros(z.shape, np.int32)
+    for c in (c for c in par.color_changes_z if c > 0):
+        b += (z >= c - 1e-9).astype(np.int32)
+    toni = _band_tones_ref(par.sampled_values, color_mode)
+    return np.array(toni, np.uint8)[np.clip(b, 0, len(toni) - 1)], toni
+
+
+def _band_tones_ref(sampled, color_mode):
+    if color_mode >= 4:
+        return list(sampled)
+    if color_mode == 3:
+        return [sampled[0], sampled[2], sampled[3]]
+    return [sampled[0], sampled[3]]
+
+
+for n in (2, 3, 4):
+    atteso, toni = classificazione(n)
+    r = mockup({"mode": "standard", "color_mode": n})
+    vista = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+    atteso_s = cv2.resize(atteso, (vista.shape[1], vista.shape[0]),
+                          interpolation=cv2.INTER_NEAREST)
+    check(f"{n} colori: l'anteprima e' la classificazione della mesh",
+          float((vista != atteso_s).mean()) < 0.005,
+          f"discordanza {float((vista != atteso_s).mean()):.2%}")
+    check(f"{n} colori: la riduzione non inventa toni",
+          set(np.unique(vista).tolist()) <= set(toni), np.unique(vista).tolist())
+
+# A 2 colori gli swatch SONO la modalita': se l'anteprima non li segue, non
+# c'e' modo di calibrare la soglia guardando il risultato.
+quote = []
+for paper in (250, 200, 150, 100):
+    sv = [paper, 210, 150, 15]
+    atteso, toni = classificazione(2, sv)
+    r = mockup({"mode": "standard", "color_mode": 2, "sampled_values": sv})
+    vista = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+    # Alla stessa scala: il nearest sottocampiona un tratteggio rado, quindi
+    # confrontare una quota a piena risoluzione con una ridotta misura la
+    # riduzione, non l'accordo fra anteprima e mesh.
+    atteso_s = cv2.resize(atteso, (vista.shape[1], vista.shape[0]),
+                          interpolation=cv2.INTER_NEAREST)
+    ink_mesh = float((atteso_s == toni[1]).mean())
+    ink_vista = float((vista == toni[1]).mean())
+    quote.append(round(ink_vista, 3))
+    check(f"2 colori, Paper={paper}: anteprima e mesh d'accordo",
+          abs(ink_mesh - ink_vista) < 0.01, (round(ink_mesh, 3), round(ink_vista, 3)))
+check("2 colori: l'anteprima si muove quando si muove la soglia",
+      len(set(quote)) > 1, quote)
+
 # Il pannello di prova non ha nero pieno (le linee stanno a 25, sopra il
 # black_clip), quindi la banda d'inchiostro non esiste: e' corretto che non
 # compaia. Con quattro toni veri devono comparire tutte e quattro le bande.

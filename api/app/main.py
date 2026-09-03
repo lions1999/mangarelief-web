@@ -23,10 +23,11 @@ import cv2
 import httpx
 import numpy as np
 
-from engine import GenerationMode, GenerationParams, standard_heightmap
+from engine import (GenerationMode, GenerationParams, prepare_source_image,
+                    standard_heightmap)
 from engine.color_utils import classify_spot_pixels, downsample_for_analysis
 
-from .analysis import analyze, filtered_gray, resolve_params
+from .analysis import analyze, engine_input, resolve_params
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import QueueFull, runner
@@ -275,13 +276,19 @@ def mockup(
         preview = np.array(palette, dtype=np.uint8)[idx]
     else:
         # Standard mode: paint each pixel with the tone it will actually print
-        # in. The heightmap comes from the engine, so this cannot drift from
-        # the mesh; the bands come from the filament changes, so what you see
-        # is which bobbin covers which area.
+        # in — running the same two engine steps the job runs, on the same
+        # input, at the same resolution. Nothing here approximates the mesh.
+        #
+        # It used to skip prepare_source_image and read the heightmap straight
+        # off the filtered grey. That is a different picture: the posterisation
+        # is what assigns a pixel to a bobbin, and with two colours it is the
+        # whole mode — the preview sat at 39.9% ink while the mesh moved from
+        # 38.5% to 0% as the swatches were calibrated. Roughly 100 ms even on a
+        # 20 MP upload, so there is nothing to buy by cutting it short.
         engine_kwargs, _ = resolve_params(rgb, p)
         params = GenerationParams(mode=GenerationMode.STANDARD, **engine_kwargs)
-        gray = filtered_gray(small)
-        z = standard_heightmap(gray, params)
+        z = standard_heightmap(
+            prepare_source_image(engine_input(rgb, "standard"), params), params)
 
         changes = [c for c in params.color_changes_z if c > 0]
         tones = _band_tones(params.sampled_values, params.color_mode)
@@ -294,8 +301,15 @@ def mockup(
         band = np.zeros(z.shape, dtype=np.int32)
         for c in changes:
             band += (z >= c - 1e-9).astype(np.int32)
-        preview = cv2.cvtColor(np.array(tones, dtype=np.uint8)[np.clip(band, 0, len(tones) - 1)],
-                               cv2.COLOR_GRAY2RGB)
+        painted = np.array(tones, dtype=np.uint8)[np.clip(band, 0, len(tones) - 1)]
+        # Ridotta solo per la trasmissione, e col nearest: una media pesata
+        # inventerebbe toni che nessuna bobina stampa.
+        ph, pw = painted.shape
+        scale = MOCKUP_MAX_PX / max(ph, pw)
+        if scale < 1.0:
+            painted = cv2.resize(painted, (max(1, int(pw * scale)), max(1, int(ph * scale))),
+                                 interpolation=cv2.INTER_NEAREST)
+        preview = cv2.cvtColor(painted, cv2.COLOR_GRAY2RGB)
 
     ok, buf = cv2.imencode(".png", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
     if not ok:
