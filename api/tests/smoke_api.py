@@ -150,6 +150,26 @@ for kind, valid in (("stl", stl_is_valid),
     check(f"download {kind}: attachment filename", "attachment" in
           d.headers.get("content-disposition", ""), d.headers.get("content-disposition"))
 
+# -------------------------------------------- la mesh decimata resta chiusa
+# Tutti gli altri job girano a 300 px, sotto la soglia di decimazione: questo
+# e' l'unico che la attraversa. Il decimatore lascia triangoli ad area zero
+# che rendono la mesh non watertight senza aprire buchi, quindi fill_holes
+# non aveva nulla da chiudere e il difetto passava in silenzio.
+import trimesh  # noqa: E402
+
+r = upload({"mode": "standard", "max_dim": 120, "max_res_cap": 800, "color_mode": 2})
+check("job draft (800 px): accettato", r.status_code == 202, r.text[:120])
+big = wait_for(r.json()["job_id"])
+check("job draft: completato", big["status"] == "done", big.get("error"))
+blob = client.get(f"/api/jobs/{big['job_id']}/artifacts/stl?preview=true").content
+mesh = trimesh.load(io.BytesIO(blob), file_type="stl")
+_, edge_count = np.unique(mesh.edges_sorted, axis=0, return_counts=True)
+check("job draft: la mesh e' passata dalla decimazione", len(mesh.faces) < 200_000,
+      len(mesh.faces))
+check("job draft: STL watertight dopo la decimazione", mesh.is_watertight,
+      f"aperti {int((edge_count == 1).sum())}, non-manifold {int((edge_count > 2).sum())}")
+check("job draft: normali coerenti", mesh.volume > 0, round(float(mesh.volume), 1))
+
 # ---------------------------------------------------------- retention policy
 after = client.get(f"/api/jobs/{job_id}").json()
 check("retention: downloaded_at set", after.get("downloaded_at") is not None)
