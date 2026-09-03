@@ -28,6 +28,7 @@ from engine import (GenerationMode, GenerationParams, prepare_source_image,
 from engine.color_utils import classify_spot_pixels, downsample_for_analysis
 
 from .analysis import analyze, bw_ambiguity, engine_input, resolve_params
+from .auth import current_user
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import safe_stem, QueueFull, runner
@@ -347,6 +348,7 @@ def create_job(
     image: UploadFile = File(...),
     params: Optional[str] = Form(None),
     turnstile_token: Optional[str] = Form(None),
+    user: Optional[dict] = Depends(current_user),
 ):
     p = parse_params(params)
     if p.mode.value not in settings.allowed_modes:
@@ -379,7 +381,9 @@ def create_job(
     record = {
         "id": job_id,
         "created_at": iso(utcnow()),
-        "user_id": None,                # phase 3: the authenticated user
+        # Null for an anonymous caller. This is the column per-user quota
+        # counts, in place of the IP hash it counts today.
+        "user_id": user["id"] if user else None,
         "ip_hash": ip_key,
         "mode": p.mode.value,
         "params": {"requested": p.model_dump(mode="json"),

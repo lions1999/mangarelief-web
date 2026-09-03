@@ -61,10 +61,11 @@ IMG = panel_png()
 client = TestClient(app)
 
 
-def upload(params: dict | None = None, filename: str = "panel.png"):
+def upload(params: dict | None = None, filename: str = "panel.png",
+           headers: dict | None = None):
     files = {"image": (filename, io.BytesIO(IMG), "image/png")}
     data = {"params": json.dumps(params)} if params else {}
-    return client.post("/api/jobs", files=files, data=data)
+    return client.post("/api/jobs", files=files, data=data, headers=headers or {})
 
 
 def wait_for(job_id: str, timeout: float = 300.0) -> dict:
@@ -499,6 +500,85 @@ check("cleanup removed the expired job", r.json()["jobs_cleaned"] >= 1, r.json()
 check("cleanup deleted its files", r.json()["files_deleted"] >= 2, r.json())
 check("cleaned job has no artifacts",
       client.get(f"/api/jobs/{job_id}").json()["artifacts"] == [])
+
+# ------------------------------------------------------- riconoscimento utente
+# Fase 3, passo 1: l'API impara CHI chiede. Niente cambia per nessuno — stessi
+# limiti, stessa ritenzione — ma una generazione fatta da autenticati viene
+# registrata sull'account, che e' la colonna su cui poggera' la quota.
+import httpx  # noqa: E402  (ri-importato: il blocco deve reggersi da solo)
+
+from app import auth  # noqa: E402
+from app.limits import limiter as _limiter  # noqa: E402
+
+
+def drena(timeout: float = 120.0):
+    """Aspetta che la coda si svuoti: il blocco del rate limit qui sopra lascia
+    job in volo, e con MAX_QUEUE a 8 il prossimo invio si prenderebbe un 503
+    che non c'entra niente con cio' che stiamo verificando."""
+    scadenza = time.time() + timeout
+    while time.time() < scadenza:
+        if client.get("/healthz").json().get("queue", 0) == 0:
+            return
+        time.sleep(0.3)
+
+
+def invia_autenticato(token: str | None = None):
+    """Un invio isolato: contatore del rate limit azzerato e coda vuota, cosi'
+    l'esito dipende solo dall'autenticazione."""
+    _limiter._hits.clear()
+    drena()
+    headers = {"Authorization": token} if token else None
+    return upload({"mode": "standard", "max_dim": 60, "max_res_cap": 300,
+                   "color_mode": 2}, headers=headers)
+
+
+FINTO = {"id": "11111111-2222-3333-4444-555555555555", "email": "tu@esempio.it"}
+_vero_fetch = auth.fetch_user
+auth.fetch_user = lambda token: FINTO if token == "token-buono" else None
+auth.reset_cache()
+try:
+    r = invia_autenticato("Bearer token-buono")
+    check("con un token valido il job e' accettato", r.status_code == 202, r.text[:120])
+    check("la generazione e' registrata sull'account",
+          get_store().get(r.json()["job_id"]).get("user_id") == FINTO["id"],
+          get_store().get(r.json()["job_id"]).get("user_id"))
+
+    r = invia_autenticato()
+    check("senza token il job resta anonimo", r.status_code == 202, r.text[:120])
+    check("anonimo: nessun account sulla riga",
+          get_store().get(r.json()["job_id"]).get("user_id") is None)
+
+    # Un token che non si riesce a verificare non deve MAI diventare "anonimo"
+    # in silenzio: e' cosi' che un difetto nell'autenticazione si trasforma in
+    # generazioni illimitate gratis.
+    check("un token non valido -> 401, non un fallback ad anonimo",
+          invia_autenticato("Bearer token-scaduto").status_code == 401)
+    check("uno schema diverso da Bearer -> 401",
+          invia_autenticato("Basic abc").status_code == 401)
+    check("Bearer senza token -> 401", invia_autenticato("Bearer ").status_code == 401)
+
+    # Verificato una volta, poi in cache: non un round trip a Supabase per ogni
+    # richiesta di chi sta interrogando un job.
+    chiamate = []
+    auth.fetch_user = lambda t: (chiamate.append(t), FINTO)[1]
+    auth.reset_cache()
+    for _ in range(3):
+        invia_autenticato("Bearer token-buono")
+    check("il token verificato viene messo in cache", len(chiamate) == 1, len(chiamate))
+
+    # Supabase irraggiungibile: rifiutare e' l'unica risposta sicura. Trattarlo
+    # come anonimo regalerebbe il piano gratuito a tutti durante un disservizio.
+    def _giu(token):
+        raise httpx.ConnectError("connessione rifiutata", request=httpx.Request("GET", "https://x"))
+    auth.fetch_user = _giu
+    auth.reset_cache()
+    check("Supabase giu' durante la verifica -> 503, mai un accesso concesso",
+          invia_autenticato("Bearer token-buono").status_code == 503)
+finally:
+    auth.fetch_user = _vero_fetch
+    auth.reset_cache()
+    _limiter._hits.clear()
+    drena()
 
 # ------------------------------------------------------------------- CORS
 # Due righe nella tabella e una pagina che "non fa nulla" e' la firma di un
