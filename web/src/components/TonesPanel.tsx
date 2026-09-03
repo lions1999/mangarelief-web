@@ -53,7 +53,9 @@ export default function TonesPanel({ tones, disabled }: Props) {
       <p className="hint">
         {TONE_LABELS[slot]} · {values[slot]}
         {manual ? "" : " · detected automatically"} — click the artwork to sample
-        into this slot.
+        into this slot. A click averages the small disc under the cursor: on
+        hatched art a single pixel is either the line or the paper between
+        lines, never the tone of the area.
         {picked && picked.value !== picked.clamped && (
           <>
             {" "}Sampled {picked.value}, kept at {picked.clamped} so the tones

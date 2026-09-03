@@ -129,7 +129,7 @@ export default function Stage({
             <div className="frame">
               <PickableImage file={file} disabled={disabled} onPick={onPick} />
             </div>
-            <figcaption>Source — click to sample</figcaption>
+            <figcaption>Source — click to sample · scroll to zoom, drag to pan</figcaption>
           </figure>
           <figure>
             <div className="frame">
