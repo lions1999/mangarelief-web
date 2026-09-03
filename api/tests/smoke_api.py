@@ -249,6 +249,22 @@ check("l'anteprima segue il numero di colori",
 check("l'anteprima a 2 colori usa carta e inchiostro, non due grigi",
       set(np.unique(due).tolist()) == {15, 250}, np.unique(due).tolist())
 
+# La bobina di mezzo deve coprire davvero la meta' scura dell'immagine — la
+# stessa che a 2 colori finisce tutta in inchiostro. A 3 colori la quota
+# intermedia veniva letta da color_changes_z[0], che a 3 colori vale 0.0 per
+# convenzione: il midtone finiva sotto il piano di base, l'oggetto annunciava
+# due cambi filamento e ne usava uno solo (qui il midtone copriva 23.619 pixel
+# invece di 167.372).
+r = mockup({"mode": "standard", "color_mode": 3})
+tre = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+sampled = info["suggested_sampled_values"]
+scuri_due = int((due == sampled[3]).sum())
+midtone_tre = int((tre == sampled[2]).sum())
+check("a 3 colori il midtone copre la stessa area che a 2 colori e' inchiostro",
+      midtone_tre >= 0.8 * scuri_due, (midtone_tre, scuri_due))
+check("a 3 colori il midtone non e' finito sotto il piano di base",
+      sampled[2] in np.unique(tre).tolist(), np.unique(tre).tolist())
+
 # Il pannello di prova non ha nero pieno (le linee stanno a 25, sopra il
 # black_clip), quindi la banda d'inchiostro non esiste: e' corretto che non
 # compaia. Con quattro toni veri devono comparire tutte e quattro le bande.
