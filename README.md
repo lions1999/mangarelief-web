@@ -4,8 +4,11 @@ Turns 2D artwork into terraced, 3D-printable meshes (STL + Bambu Studio 3MF)
 over HTTP. This is the web half of **MangaRelief**; the desktop application and
 the generation engine live in [MangaRelief](https://github.com/lions1999/MangaRelief).
 
-> **Status: phase 2.** A browser flow with an orbitable 3D preview, on top of
-> the phase 1 API. Accounts, quota and payments are still ahead.
+**Live:** [mangarelief-web.pages.dev](https://mangarelief-web.pages.dev) —
+frontend on Cloudflare Pages, API on Cloud Run, storage and database on Supabase.
+
+> **Status: phase 2 complete.** Anyone can open the site, upload artwork, watch
+> the model appear and download it. Accounts, quota and payments are still ahead.
 
 ---
 
@@ -225,6 +228,10 @@ that is what makes this service possible at all.
 - **The STL preview is the full mesh** — a few MB over the wire. Fine on a
   desktop, heavy on a phone; a decimated preview mesh is the fix when it starts
   to matter.
+- **The Supabase branch has no test coverage.** The suite runs in local mode on
+  SQLite, so that code only executes in production — which is where its three
+  bugs were found (a missing lxml, a `+` in a URL-encoded timestamp, and errors
+  that reported nothing). A CI job against a real Postgres would close the gap.
 - **Turnstile is optional.** Set `VITE_TURNSTILE_SITE_KEY` and `TURNSTILE_SECRET`
   to switch it on. Verification fails *open* on a Cloudflare outage: a captcha
   being down should slow abuse, not take the service offline.
@@ -234,8 +241,7 @@ that is what makes this service possible at all.
 ## Roadmap
 
 1. ~~Backend API~~
-2. ~~Frontend (Vite + React), Three.js preview~~ ← you are here; the public
-   demo needs the deploy secrets above
-3. Accounts, roles, quota (Supabase Auth)
+2. ~~Frontend (Vite + React), Three.js preview, public demo~~
+3. Accounts, roles, quota (Supabase Auth) ← next
 4. Client-side mockup for Spot Color tuning
 5. Payments
