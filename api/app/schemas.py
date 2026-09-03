@@ -109,6 +109,12 @@ class JobCreated(BaseModel):
     status_url: str
 
 
+class FilamentChange(BaseModel):
+    """One filament swap: the Z to pause at, and the colour to load."""
+    z: float
+    color: Optional[str] = None      # '#rrggbb' when the mode knows the colour
+
+
 class JobView(BaseModel):
     job_id: str
     status: JobStatus
@@ -121,6 +127,7 @@ class JobView(BaseModel):
     duration_s: Optional[float] = None
     error: Optional[str] = None
     artifacts: List[Artifact] = Field(default_factory=list)
+    filament_changes: List[FilamentChange] = Field(default_factory=list)
 
 
 class AnalysisResult(BaseModel):

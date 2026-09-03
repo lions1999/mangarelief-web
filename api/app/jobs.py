@@ -115,6 +115,14 @@ class JobRunner:
                 "message": "Completed",
                 "duration_s": round(result.elapsed_s, 2),
                 "artifacts": artifacts,
+                # Il piano di stampa: senza queste quote lo STL scaricato non
+                # dice a che altezza cambiare bobina, e il 3MF le nasconde
+                # dentro il file.
+                "filament_changes": [
+                    {"z": z, "color": (result.slot_colors[i]
+                                       if i < len(result.slot_colors) else None)}
+                    for i, z in enumerate(result.color_changes_z)
+                ],
                 "expires_at": iso(default_expiry()),
             })
             log.info("job %s done in %.2fs", job_id, result.elapsed_s)

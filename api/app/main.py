@@ -23,6 +23,7 @@ import cv2
 import httpx
 import numpy as np
 
+from engine import GenerationMode, GenerationParams, standard_heightmap
 from engine.color_utils import classify_spot_pixels, downsample_for_analysis
 
 from .analysis import analyze, filtered_gray, resolve_params
@@ -30,8 +31,8 @@ from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import QueueFull, runner
 from .limits import clamp_to_anonymous_tier, hash_ip, limiter, turnstile_ok
-from .schemas import (AnalysisResult, Artifact, JobCreated, JobParams, JobStatus,
-                      JobView)
+from .schemas import (AnalysisResult, Artifact, FilamentChange, JobCreated,
+                      JobParams, JobStatus, JobView)
 from .storage import get_storage
 from .store import (get_store, iso, parse_iso, shortened_expiry, default_expiry,
                     utcnow)
@@ -161,6 +162,8 @@ def record_to_view(record: dict, base_url: str) -> JobView:
         duration_s=record.get("duration_s"),
         error=record.get("error"),
         artifacts=artifacts,
+        filament_changes=[FilamentChange(**c)
+                          for c in (record.get("filament_changes") or [])],
     )
 
 
@@ -228,6 +231,19 @@ def analyze_image(
 MOCKUP_MAX_PX = 700
 
 
+def _band_tones(sampled: List[int], color_mode: int) -> List[int]:
+    """The grey each printed band shows, light at the bottom, dark on top.
+
+    Mirrors which levels the desktop selector hides: 4 colours use all four
+    sampled tones, 3 drop L1, 2 keep only paper and ink.
+    """
+    if color_mode >= 4:
+        return list(sampled)
+    if color_mode == 3:
+        return [sampled[0], sampled[2], sampled[3]]
+    return [sampled[0], sampled[3]]
+
+
 @app.post("/api/mockup")
 def mockup(
     image: UploadFile = File(...),
@@ -258,9 +274,22 @@ def mockup(
                                             white_clip=white_clip, black_clip=black_clip)
         preview = np.array(palette, dtype=np.uint8)[idx]
     else:
-        # Standard mode prints from the filtered grayscale, so that is the
-        # honest preview of what the relief will follow.
-        preview = cv2.cvtColor(filtered_gray(small), cv2.COLOR_GRAY2RGB)
+        # Standard mode: paint each pixel with the tone it will actually print
+        # in. The heightmap comes from the engine, so this cannot drift from
+        # the mesh; the bands come from the filament changes, so what you see
+        # is which bobbin covers which area.
+        engine_kwargs, _ = resolve_params(rgb, p)
+        params = GenerationParams(mode=GenerationMode.STANDARD, **engine_kwargs)
+        gray = filtered_gray(small)
+        z = standard_heightmap(gray, params)
+
+        changes = [c for c in params.color_changes_z if c > 0]
+        tones = _band_tones(params.sampled_values, params.color_mode)
+        band = np.zeros(z.shape, dtype=np.int32)
+        for c in changes[:-1]:          # l'ultimo cambio è il top, non apre banda
+            band += (z > c).astype(np.int32)
+        preview = cv2.cvtColor(np.array(tones, dtype=np.uint8)[np.clip(band, 0, len(tones) - 1)],
+                               cv2.COLOR_GRAY2RGB)
 
     ok, buf = cv2.imencode(".png", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
     if not ok:
@@ -320,6 +349,7 @@ def create_job(
         "duration_s": None,
         "error": None,
         "artifacts": [],
+        "filament_changes": [],
         "expires_at": iso(default_expiry()),
         "downloaded_at": None,
     }

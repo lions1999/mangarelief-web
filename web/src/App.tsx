@@ -7,6 +7,7 @@ const ModelViewer = lazy(() => import("./components/ModelViewer"));
 import ParamsPanel from "./components/ParamsPanel";
 import ProgressBar from "./components/ProgressBar";
 import SpotPanel from "./components/SpotPanel";
+import TonesPanel from "./components/TonesPanel";
 import Turnstile, { turnstileEnabled } from "./components/Turnstile";
 import { analyze, createJob, downloadUrl, getJob, previewUrl } from "./api";
 import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView } from "./types";
@@ -126,6 +127,16 @@ export default function App() {
             />
           )}
 
+          {file && params.mode === "standard" && (
+            <TonesPanel
+              file={file}
+              params={params}
+              analysis={analysis}
+              disabled={busy}
+              onChange={patch}
+            />
+          )}
+
           {file && params.mode === "spot_color" && (
             <SpotPanel
               file={file}
@@ -180,14 +191,34 @@ export default function App() {
                     </a>
                   ))}
                 </div>
+                {job.filament_changes.length > 0 && (
+                  <div className="plan">
+                    <h3>Filament changes</h3>
+                    <ol>
+                      {job.filament_changes.map((c, i) => (
+                        <li key={c.z}>
+                          <span className="plan-z">{c.z.toFixed(2)} mm</span>
+                          {c.color && (
+                            <span className="chip" style={{ background: c.color }} />
+                          )}
+                          <span className="plan-what">
+                            {c.color ? `load ${c.color}` : `colour ${i + 2}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ol>
+                    <p className="hint">
+                      The 3MF has these placed already — open it in Bambu Studio and
+                      print. The plain STL does not carry them, so pause at each
+                      height yourself.
+                    </p>
+                  </div>
+                )}
+
                 <p className="hint">
                   Generated in {job.duration_s?.toFixed(1)}s. Files are deleted in{" "}
                   {expiryLabel(job.expires_at)}, and 24 hours after your first
                   download — save them somewhere.
-                </p>
-                <p className="hint">
-                  The 3MF carries the filament changes: open it in Bambu Studio and
-                  the colour swaps are already placed.
                 </p>
               </>
             )}

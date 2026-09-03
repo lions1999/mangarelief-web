@@ -113,6 +113,13 @@ check("standard: progress 100", body.get("progress") == 100, body.get("progress"
 check("standard: two artifacts", len(body.get("artifacts", [])) == 2,
       [a["kind"] for a in body.get("artifacts", [])])
 check("standard: duration recorded", (body.get("duration_s") or 0) > 0, body.get("duration_s"))
+changes = body.get("filament_changes", [])
+check("standard: piano di stampa restituito", len(changes) > 0, changes)
+check("standard: quote crescenti e positive",
+      all(c["z"] > 0 for c in changes)
+      and [c["z"] for c in changes] == sorted(c["z"] for c in changes), changes)
+
+spot_plan = None
 
 def stl_is_valid(blob: bytes) -> bool:
     """Binary STL: 80-byte header, then a triangle count that matches the size."""
@@ -156,6 +163,10 @@ check("create spot job -> 202", r.status_code == 202, r.text[:200])
 spot_body = wait_for(r.json()["job_id"])
 check("spot job done", spot_body["status"] == "done",
       spot_body.get("error") or spot_body["status"])
+spot_plan = spot_body.get("filament_changes", [])
+check("spot: ogni cambio porta il suo colore",
+      len(spot_plan) > 0 and all(c.get("color", "").startswith("#") for c in spot_plan),
+      spot_plan)
 
 # accents left out -> detected server-side
 r = upload({"mode": "spot_color", "max_dim": 60, "max_res_cap": 300})
@@ -187,6 +198,20 @@ check("mockup standard: PNG", r.headers["content-type"] == "image/png",
       r.headers.get("content-type"))
 w_std, h_std = png_size(r.content)
 check("mockup standard: downscaled", max(w_std, h_std) <= 700, (w_std, h_std))
+
+std_png = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+tones = sorted(np.unique(std_png).tolist())
+check("mockup standard: mostra le bande stampate, non una scala continua",
+      2 <= len(tones) <= 4, tones)
+
+# i toni scelti a mano devono comparire nell'anteprima
+r = mockup({"mode": "standard", "sampled_values": [250, 200, 90, 10],
+            "color_changes_z": [1.4, 2.0, 2.4]})
+check("mockup standard: rispetta i toni scelti a mano", r.status_code == 200, r.status_code)
+manual = cv2.imdecode(np.frombuffer(r.content, np.uint8), cv2.IMREAD_GRAYSCALE)
+scelti = set(np.unique(manual).tolist())
+check("mockup standard: dipinge esattamente i toni indicati",
+      scelti <= {250, 200, 90, 10} and len(scelti) >= 2, sorted(scelti))
 
 r = mockup({"mode": "spot_color", "spot_accents": [[231, 47, 55]], "spot_coverage": 40})
 check("mockup spot 200", r.status_code == 200, r.status_code)

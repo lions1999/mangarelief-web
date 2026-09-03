@@ -24,7 +24,7 @@ from .config import settings
 
 COLUMNS = ("id", "created_at", "user_id", "ip_hash", "mode", "params", "status",
            "progress", "message", "duration_s", "error", "artifacts",
-           "expires_at", "downloaded_at")
+           "filament_changes", "expires_at", "downloaded_at")
 
 
 def utcnow() -> datetime:
@@ -65,6 +65,7 @@ class SqliteStore:
                     duration_s REAL,
                     error TEXT,
                     artifacts TEXT NOT NULL DEFAULT '[]',
+                    filament_changes TEXT NOT NULL DEFAULT '[]',
                     expires_at TEXT,
                     downloaded_at TEXT
                 )
@@ -80,12 +81,14 @@ class SqliteStore:
         d = dict(row)
         d["params"] = json.loads(d["params"] or "{}")
         d["artifacts"] = json.loads(d["artifacts"] or "[]")
+        d["filament_changes"] = json.loads(d["filament_changes"] or "[]")
         return d
 
     def insert(self, record: Dict[str, Any]) -> None:
         payload = dict(record)
         payload["params"] = json.dumps(payload.get("params", {}))
         payload["artifacts"] = json.dumps(payload.get("artifacts", []))
+        payload["filament_changes"] = json.dumps(payload.get("filament_changes", []))
         with self._lock, self._connect() as con:
             con.execute(
                 f"INSERT INTO generations ({','.join(COLUMNS)}) "
@@ -99,6 +102,8 @@ class SqliteStore:
             payload["params"] = json.dumps(payload["params"])
         if "artifacts" in payload:
             payload["artifacts"] = json.dumps(payload["artifacts"])
+        if "filament_changes" in payload:
+            payload["filament_changes"] = json.dumps(payload["filament_changes"])
         sets = ", ".join(f"{k} = ?" for k in payload)
         with self._lock, self._connect() as con:
             con.execute(f"UPDATE generations SET {sets} WHERE id = ?",

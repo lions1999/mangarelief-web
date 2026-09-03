@@ -11,6 +11,8 @@ export interface JobParams {
   max_res_cap: number;
   white_clip?: number | null;
   black_clip?: number | null;
+  sampled_values?: number[] | null;
+  color_changes_z?: number[] | null;
   spot_accents: RGB[];
   spot_coverage: number;
   autodetect_accents?: boolean;
@@ -37,6 +39,11 @@ export interface Artifact {
   download_url: string;
 }
 
+export interface FilamentChange {
+  z: number;
+  color: string | null;
+}
+
 export interface JobView {
   job_id: string;
   status: JobStatus;
@@ -49,6 +56,7 @@ export interface JobView {
   duration_s: number | null;
   error: string | null;
   artifacts: Artifact[];
+  filament_changes: FilamentChange[];
 }
 
 export const DEFAULT_PARAMS: JobParams = {
