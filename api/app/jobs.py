@@ -18,11 +18,13 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Any, Dict, List
 
+import cv2
 import numpy as np
 
 from engine import GenerationMode, GenerationParams, generate
 
 from .analysis import engine_input
+from . import preview
 
 from .config import settings
 from .storage import get_storage
@@ -75,6 +77,74 @@ def output_stem(source_stem: Optional[str], mode: str, color_mode: Optional[int]
     return f"mangarelief_{tag}_{job_id[:8]}"
 
 
+def _webp(img_rgb: np.ndarray, quality: int) -> Optional[bytes]:
+    """RGB -> webp. Oltre 100 OpenCV scrive senza perdita."""
+    ok, buf = cv2.imencode(".webp", cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR),
+                           [cv2.IMWRITE_WEBP_QUALITY, quality])
+    return buf.tobytes() if ok else None
+
+
+def _ridotta(rgb: np.ndarray, lato: int) -> np.ndarray:
+    h, w = rgb.shape[:2]
+    s = lato / max(h, w)
+    if s >= 1.0:
+        return rgb
+    return cv2.resize(rgb, (max(1, round(w * s)), max(1, round(h * s))),
+                      interpolation=cv2.INTER_AREA)
+
+
+def keep_for_history(job_id: str, rgb: np.ndarray, params_richiesti,
+                     user_id: str) -> Dict[str, Any]:
+    """Cio' che sopravvive alla scadenza dei file: la miniatura e la sorgente.
+
+    Sotto `history/<id>/` e non `<id>/`, perche' la pulizia a scadenza cancella
+    l'intera cartella del job e porterebbe via anche queste.
+
+    La miniatura e' il mockup, non l'immagine caricata: lo stesso pannello a 2,
+    3 e 4 colori darebbe tre miniature identiche, e distinguere quelle tre e'
+    esattamente il motivo per cui una cronologia serve. Senza perdita, perche'
+    su quattro colori piatti costa meno del jpeg e non inventa mezzetinte.
+
+    La sorgente e' q92: la differenza non si vede, e comunque rigenerare non
+    riproduce il file all'ultimo bit — l'immagine e' gia' stata ridotta una
+    volta, rigenerando la si riduce due.
+    """
+    storage = get_storage()
+    campi: Dict[str, Any] = {}
+
+    mini, _ = preview.render(rgb, params_richiesti, max_px=settings.history_preview_px)
+    dati = _webp(mini, 101)
+    if dati:
+        chiave = f"history/{job_id}/preview.webp"
+        storage.put(chiave, dati, "image/webp")
+        campi["preview_key"] = chiave
+
+    dati = _webp(_ridotta(rgb, settings.history_source_px), 92)
+    if dati:
+        chiave = f"history/{job_id}/source.webp"
+        storage.put(chiave, dati, "image/webp")
+        campi["source_key"] = chiave
+    return campi
+
+
+def prune_sources(user_id: str) -> int:
+    """Toglie la sorgente alle voci oltre le ultime `HISTORY_KEEP_SOURCES`.
+
+    Non tocca la voce: resta in cronologia con la sua miniatura e i suoi
+    parametri, e perde solo il pulsante che rigenera con un clic.
+    """
+    store, storage = get_store(), get_storage()
+    tolte = 0
+    for riga in store.sources_beyond(user_id, settings.history_keep_sources):
+        try:
+            storage.delete(f"history/{riga['id']}/source.webp")
+        except Exception:
+            log.warning("could not delete source of %s", riga["id"], exc_info=True)
+        store.update(riga["id"], {"source_key": None})
+        tolte += 1
+    return tolte
+
+
 class JobRunner:
     def __init__(self):
         self._pool = ThreadPoolExecutor(max_workers=settings.max_workers,
@@ -88,16 +158,19 @@ class JobRunner:
             return self._pending
 
     def submit(self, job_id: str, image: np.ndarray, mode: str, engine_kwargs: Dict[str, Any],
-               source_stem: Optional[str] = None):
+               source_stem: Optional[str] = None, user_id: Optional[str] = None,
+               requested=None):
         with self._lock:
             if self._pending >= settings.max_queue:
                 raise QueueFull(f"{self._pending} jobs already queued or running")
             self._pending += 1
-        self._pool.submit(self._run, job_id, image, mode, engine_kwargs, source_stem)
+        self._pool.submit(self._run, job_id, image, mode, engine_kwargs, source_stem,
+                          user_id, requested)
 
     # ------------------------------------------------------------------
     def _run(self, job_id: str, image: np.ndarray, mode: str, engine_kwargs: Dict[str, Any],
-             source_stem: Optional[str] = None):
+             source_stem: Optional[str] = None, user_id: Optional[str] = None,
+             requested=None):
         store = get_store()
         storage = get_storage()
         started = time.time()
@@ -149,6 +222,15 @@ class JobRunner:
                     artifacts.append({"kind": kind, "filename": os.path.basename(path),
                                       "key": key, "bytes": len(data)})
 
+            # Prima il risultato, poi la cronologia: se la miniatura non si
+            # scrive, il modello e' comunque pronto e scaricabile.
+            cronologia: Dict[str, Any] = {}
+            if user_id and requested is not None:
+                try:
+                    cronologia = keep_for_history(job_id, image, requested, user_id)
+                except Exception:
+                    log.warning("history assets failed for %s", job_id, exc_info=True)
+
             store.update(job_id, {
                 "status": "done",
                 "progress": 100,
@@ -164,7 +246,13 @@ class JobRunner:
                     for i, z in enumerate(result.color_changes_z)
                 ],
                 "expires_at": iso(default_expiry()),
+                **cronologia,
             })
+            if cronologia.get("source_key"):
+                try:
+                    prune_sources(user_id)
+                except Exception:
+                    log.warning("pruning history sources failed for %s", user_id, exc_info=True)
             log.info("job %s done in %.2fs", job_id, result.elapsed_s)
 
         except InterruptedError:

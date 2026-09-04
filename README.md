@@ -135,6 +135,36 @@ who tries twice and then signs up does not restart with the full allowance.
 ### `POST /api/auth/refresh`
 `{refresh_token}` → a fresh session.
 
+### `GET /api/history`
+The signed-in account's generations, newest first: name, mode, colours, state,
+a thumbnail URL, and whether it can still be redone. Requires an account —
+anonymous rows are keyed to a browser, and listing them per browser would show
+whoever shares that computer what someone else made.
+
+A generation outlives its files. The files are 9 MB and expire in 48h because
+1 GB of bucket is roughly 113 of them; what stays is a 7 KB thumbnail and, for
+the most recent generations of each account, the artwork reduced to 800px
+(~110 KB) so the model can be remade with one click. The thumbnail is the
+*mockup*, not the uploaded artwork: the same panel at 2, 3 and 4 colours would
+otherwise be three identical tiles, and telling those apart is the whole reason
+a history is useful.
+
+`POST /api/history/{id}/regenerate` remakes an expired one from that stored
+artwork, and **spends one of the day's generations** — remaking a file costs
+exactly what making it cost, so not counting it would be a back door onto the
+quota. It reuses the *resolved* parameters, not the requested ones: the sampled
+tones were read off the full-size upload, and recomputing them on the reduced
+copy would hand back a slightly different model from the one being asked for.
+
+`DELETE /api/history/{id}` deletes the files and hides the entry, but keeps the
+row. The row is the quota ledger: deleting it would be a way to reset your own
+counter — generate, download, delete, repeat.
+
+`GET /api/history/{id}/preview` serves the thumbnail, unauthenticated like the
+artifact downloads: the 32-hex job id is the capability. An `<img>` cannot carry
+an Authorization header, and fetching a 7 KB picture through JavaScript to pass
+it as a blob buys nothing.
+
 ### `GET /api/limits`
 The rules of the service as numbers — how many generations per window, how long
 files live, how large an upload may be, the caps of the free tier. Public, and
@@ -199,6 +229,14 @@ counter that does not restart, the link from yesterday that no longer resolves.
 | `anonymous` | 2 per rolling 24h | no account |
 | `registered` | 5 per rolling 24h | signed in |
 | `unlimited` | no cap | granted per account |
+
+The retention window and the history are the same budget seen twice: **files
+are the scarce resource, entries are not.** A generation's STL and 3MF weigh
+~9 MB, so the free 1 GB bucket saturates around 58 generations a day; a history
+entry weighs 7 KB, so 20,000 of them take 14% of it. That asymmetry is why the
+files expire on schedule while the entry stays, and why the reduced artwork —
+the only part of an entry that is expensive — is kept for the last
+`HISTORY_KEEP_SOURCES` generations per account rather than all of them.
 
 **Retention does not change with the plan.** Files still expire after 48h, or
 24h from the first download: the cap that is lifted is on the count, not on

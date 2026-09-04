@@ -642,6 +642,167 @@ finally:
     _auth.fetch_user = _fetch_orig
     _auth.reset_cache()
 
+# -------------------------------------------------------------- cronologia
+# Cosa resta di una generazione dopo che i suoi 9 MB sono stati cancellati: una
+# miniatura da 7 KB e, per le piu' recenti, la sorgente per rifarla.
+from app.storage import get_storage  # noqa: E402
+
+UTENTE = {"id": "aaaaaaaa-0000-0000-0000-0000000000cc", "email": "storia@esempio.it"}
+ALTRUI = {"id": "bbbbbbbb-0000-0000-0000-0000000000dd", "email": "altri@esempio.it"}
+_fetch_prima = _auth.fetch_user
+_keep_prima = _cfg.history_keep_sources
+
+
+def come(chi):
+    """Fa parlare fetch_user per conto di qualcuno (o di nessuno)."""
+    _auth.fetch_user = lambda t, _chi=chi: _chi if t == "storia" else None
+    _auth.reset_cache()
+
+
+def genera_per(chi, nome="Roger pagina 12.png"):
+    come(chi)
+    r = upload({"mode": "standard", "max_dim": 40, "max_res_cap": 200},
+               filename=nome, headers={"Authorization": "Bearer storia"})
+    assert r.status_code == 202, r.text[:200]
+    jid = r.json()["job_id"]
+    wait_for(jid)
+    return jid
+
+
+def cronologia():
+    return client.get("/api/history", headers={"Authorization": "Bearer storia"}).json()
+
+
+try:
+    check("senza account la cronologia non esiste",
+          client.get("/api/history").status_code == 401)
+
+    primo = genera_per(UTENTE)
+    riga = get_store().get(primo)
+    check("una generazione con account conserva miniatura e sorgente",
+          riga["preview_key"] and riga["source_key"],
+          (riga["preview_key"], riga["source_key"]))
+    check("stanno sotto history/, non nella cartella del job",
+          riga["preview_key"].startswith("history/") and riga["source_key"].startswith("history/"),
+          riga["preview_key"])
+
+    mini = get_storage().get(riga["preview_key"])
+    sorg = get_storage().get(riga["source_key"])
+    check("la miniatura e' un webp e pesa pochi KB",
+          mini[:4] == b"RIFF" and mini[8:12] == b"WEBP" and len(mini) < 60_000,
+          f"{len(mini)/1024:.1f} KB")
+    check("la sorgente e' un webp e pesa molto meno dell'originale",
+          sorg[8:12] == b"WEBP" and len(sorg) < 500_000, f"{len(sorg)/1024:.1f} KB")
+    check("la miniatura costa una frazione della sorgente", len(mini) * 3 < len(sorg),
+          (len(mini), len(sorg)))
+
+    voci = cronologia()
+    v = voci["entries"][0]
+    check("la voce porta il nome com'e' stato caricato",
+          v["image_name"] == "Roger pagina 12.png", v["image_name"])
+    check("la voce e' viva e scaricabile", v["status"] == "done" and len(v["artifacts"]) == 2,
+          (v["status"], v["artifacts"]))
+    check("e si puo' rifare", v["can_regenerate"] is True)
+    check("dice quante voci restano rifacibili", voci["keep_sources"] == _cfg.history_keep_sources)
+
+    pv = client.get(f"/api/history/{primo}/preview")
+    check("la miniatura si scarica come webp",
+          pv.status_code == 200 and pv.headers["content-type"] == "image/webp",
+          (pv.status_code, pv.headers.get("content-type")))
+
+    # Le generazioni anonime non lasciano niente: la cronologia e' degli account.
+    come(None)
+    anon = upload({"mode": "standard", "max_dim": 40, "max_res_cap": 200})
+    wait_for(anon.json()["job_id"])
+    ranon = get_store().get(anon.json()["job_id"])
+    check("una generazione anonima non conserva nulla",
+          not ranon["preview_key"] and not ranon["source_key"],
+          (ranon["preview_key"], ranon["source_key"]))
+
+    # --- la potatura: la sorgente pesa 15 volte la miniatura
+    _cfg.history_keep_sources = 2
+    secondo = genera_per(UTENTE)
+    terzo = genera_per(UTENTE)
+    check("oltre il tetto la sorgente viene potata",
+          get_store().get(primo)["source_key"] is None,
+          get_store().get(primo)["source_key"])
+    check("ma la voce resta, con la sua miniatura",
+          get_store().get(primo)["preview_key"] is not None
+          and primo in [e["id"] for e in cronologia()["entries"]])
+    check("e si dichiara non piu' rifacibile con un clic",
+          [e for e in cronologia()["entries"] if e["id"] == primo][0]["can_regenerate"] is False)
+    check("il file della sorgente potata e' sparito davvero",
+          _errore_su(lambda: get_storage().get(f"history/{primo}/source.webp")) is not None)
+    check("le due piu' recenti restano rifacibili",
+          all(get_store().get(j)["source_key"] for j in (secondo, terzo)))
+
+    # --- rifare consuma una generazione della giornata
+    prima_uso = client.get("/api/quota", headers={"Authorization": "Bearer storia"}).json()["used"]
+    rg = client.post(f"/api/history/{terzo}/regenerate",
+                     headers={"Authorization": "Bearer storia"})
+    check("rifare parte come un lavoro nuovo", rg.status_code == 202, rg.text[:200])
+    rifatto = wait_for(rg.json()["job_id"])
+    check("e produce di nuovo i due file",
+          rifatto["status"] == "done" and len(rifatto["artifacts"]) == 2,
+          rifatto["status"])
+    dopo_uso = client.get("/api/quota", headers={"Authorization": "Bearer storia"}).json()["used"]
+    check("rifare costa una generazione, non e' una porta di servizio",
+          dopo_uso == prima_uso + 1, (prima_uso, dopo_uso))
+    check("il rifatto sa da dove viene",
+          get_store().get(rg.json()["job_id"])["params"].get("regenerated_from") == terzo)
+
+    check("una voce senza sorgente non si puo' rifare da qui",
+          client.post(f"/api/history/{primo}/regenerate",
+                      headers={"Authorization": "Bearer storia"}).status_code == 409)
+
+    # --- la cronologia sopravvive alla scadenza dei file
+    # Voce nuova e tetto largo: con il tetto a 2, il rifacimento qui sopra e'
+    # gia' una generazione in piu' e avrebbe potato la sorgente di questa —
+    # che e' il comportamento giusto, ma non e' quello che si sta misurando.
+    _cfg.history_keep_sources = _keep_prima
+    quarto = genera_per(UTENTE)
+    get_store().update(quarto, {"expires_at": iso(utcnow() - timedelta(days=1))})
+    pulizia = client.post("/api/internal/cleanup", headers={"X-Cleanup-Token": "smoke-token"})
+    check("la pulizia passa", pulizia.status_code == 200, pulizia.text[:200])
+    check("i file della voce scaduta sono spariti davvero",
+          _errore_su(lambda: get_storage().get(
+              (get_store().get(quarto).get("artifacts") or [{"key": f"{quarto}/x"}])[0]["key"]
+              if get_store().get(quarto).get("artifacts") else f"{quarto}/nulla")) is not None)
+    scaduta = [e for e in cronologia()["entries"] if e["id"] == quarto][0]
+    check("la voce resta in cronologia anche senza i suoi file",
+          scaduta["status"] == "expired" and scaduta["artifacts"] == [], scaduta["status"])
+    check("e la sua miniatura e' ancora li'",
+          client.get(f"/api/history/{quarto}/preview").status_code == 200)
+    check("e resta rifacibile: la sorgente non scade con i file",
+          scaduta["can_regenerate"] is True)
+
+    # --- il cestino non deve azzerare il contatore
+    uso_prima = client.get("/api/quota", headers={"Authorization": "Bearer storia"}).json()["used"]
+    canc = client.delete(f"/api/history/{terzo}", headers={"Authorization": "Bearer storia"})
+    check("cancellare una voce risponde 204", canc.status_code == 204, canc.status_code)
+    check("sparisce dalla cronologia", terzo not in [e["id"] for e in cronologia()["entries"]])
+    check("la sua miniatura non si serve piu'",
+          client.get(f"/api/history/{terzo}/preview").status_code == 404)
+    uso_dopo = client.get("/api/quota", headers={"Authorization": "Bearer storia"}).json()["used"]
+    check("ma la generazione resta contata: il cestino non e' un azzeratore di quota",
+          uso_dopo == uso_prima, (uso_prima, uso_dopo))
+
+    # --- la cronologia di un altro non si tocca
+    come(ALTRUI)
+    check("la cronologia di un altro account e' vuota, non e' la tua",
+          cronologia()["entries"] == [])
+    check("e le sue voci non si cancellano",
+          client.delete(f"/api/history/{secondo}",
+                        headers={"Authorization": "Bearer storia"}).status_code == 404)
+    check("ne' si rifanno",
+          client.post(f"/api/history/{secondo}/regenerate",
+                      headers={"Authorization": "Bearer storia"}).status_code == 404)
+finally:
+    _cfg.history_keep_sources = _keep_prima
+    _auth.fetch_user = _fetch_prima
+    _auth.reset_cache()
+
+
 # ------------------------------------------------------------------ cleanup
 check("cleanup without token -> 401",
       client.post("/api/internal/cleanup").status_code == 401)

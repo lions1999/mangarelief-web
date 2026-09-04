@@ -71,6 +71,17 @@ class Settings:
     anon_max_dim_mm: float = field(default_factory=lambda: _env_float("ANON_MAX_DIM_MM", 200.0))
     allowed_modes: List[str] = field(default_factory=lambda: ["standard", "spot_color"])
 
+    # --- Cronologia -------------------------------------------------------
+    # Cosa resta di una generazione dopo la scadenza dei file. La miniatura
+    # (quattro colori piatti, ~7 KB) resta sempre; la sorgente ridotta (~110 KB)
+    # solo per le ultime generazioni di ogni account, perche' e' l'unica parte
+    # che possa riempire il bucket: a 5.000 voci occuperebbe meta' del piano
+    # gratuito, che serve prima di tutto ai file vivi.
+    history_keep_sources: int = field(default_factory=lambda: _env_int("HISTORY_KEEP_SOURCES", 10))
+    history_preview_px: int = field(default_factory=lambda: _env_int("HISTORY_PREVIEW_PX", 320))
+    history_source_px: int = field(default_factory=lambda: _env_int("HISTORY_SOURCE_PX", 800))
+    history_max: int = field(default_factory=lambda: _env_int("HISTORY_MAX", 60))
+
     # --- Job queue --------------------------------------------------------
     # One worker: the pipeline is CPU- and RAM-hungry, running two at once on
     # a small instance is how you get OOM-killed instead of slow.

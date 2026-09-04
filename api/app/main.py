@@ -20,15 +20,9 @@ from fastapi import (Depends, FastAPI, Form, Header, HTTPException, Request,
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
-import cv2
 import httpx
-import numpy as np
 
-from engine import (GenerationMode, GenerationParams, prepare_source_image,
-                    standard_heightmap)
-from engine.color_utils import classify_spot_pixels, downsample_for_analysis
-
-from .analysis import analyze, bw_ambiguity, engine_input, resolve_params
+from .analysis import analyze, resolve_params
 from . import auth as auth_mod
 from .auth import current_user
 from . import emails
@@ -36,6 +30,7 @@ from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import safe_stem, QueueFull, runner
 from .limits import clamp_to_anonymous_tier, hash_ip, turnstile_ok
+from . import preview
 from . import quota
 from .schemas import (AnalysisResult, Artifact, CodeRequest, FilamentChange,
                       JobCreated, JobParams, JobStatus, JobView, RefreshRequest,
@@ -91,6 +86,21 @@ def client_ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else ""
+
+
+def display_name(filename: Optional[str]) -> Optional[str]:
+    """Il nome del file caricato, ripulito quanto basta per mostrarlo.
+
+    Diverso da `safe_stem`, che produce un nome da mettere in un percorso: qui
+    servono gli spazi e gli accenti, perche' e' cosi' che chi guarda la
+    cronologia riconosce la propria tavola. Si tolgono i caratteri di
+    controllo e la lunghezza eccessiva, e nient'altro.
+    """
+    if not filename:
+        return None
+    nome = filename.replace("\\", "/").rsplit("/", 1)[-1]
+    nome = "".join(c for c in nome if c.isprintable()).strip()
+    return nome[:120] or None
 
 
 def read_upload(image: UploadFile) -> bytes:
@@ -240,22 +250,6 @@ def analyze_image(
     return AnalysisResult(**info)
 
 
-MOCKUP_MAX_PX = 700
-
-
-def _band_tones(sampled: List[int], color_mode: int) -> List[int]:
-    """The grey each printed band shows, light at the bottom, dark on top.
-
-    Mirrors which levels the desktop selector hides: 4 colours use all four
-    sampled tones, 3 drop L1, 2 keep only paper and ink.
-    """
-    if color_mode >= 4:
-        return list(sampled)
-    if color_mode == 3:
-        return [sampled[0], sampled[2], sampled[3]]
-    return [sampled[0], sampled[3]]
-
-
 @app.post("/api/mockup")
 def mockup(
     image: UploadFile = File(...),
@@ -267,73 +261,23 @@ def mockup(
     blind, and a full generation per adjustment is far too slow. Deliberately
     computed at a small resolution — this is called on every slider move
     (debounced), not once per job.
+
+    Il calcolo sta in `preview.render`, che serve anche la miniatura della
+    cronologia: due implementazioni della stessa figura finirebbero per
+    contraddirsi in faccia a chi guarda.
     """
     p = parse_params(params)
     rgb = decode_or_422(read_upload(image))
-    small = downsample_for_analysis(rgb, MOCKUP_MAX_PX)
-    extra_headers: dict = {}
+    try:
+        immagine, extra_headers = preview.render(rgb, p)
+    except preview.NoAccents as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
-    if p.mode.value == "spot_color":
-        accents = [tuple(a) for a in p.spot_accents]
-        if not accents and p.autodetect_accents:
-            accents = analyze(rgb, n_accents=2)["suggested_accents"][:2]
-        if not accents:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "spot_color needs at least one accent colour to preview")
-        white_clip = p.white_clip if p.white_clip is not None else 235
-        black_clip = p.black_clip if p.black_clip is not None else 15
-        palette, idx = classify_spot_pixels(small, accents, coverage=p.spot_coverage,
-                                            white_clip=white_clip, black_clip=black_clip)
-        preview = np.array(palette, dtype=np.uint8)[idx]
-    else:
-        # Standard mode: paint each pixel with the tone it will actually print
-        # in — running the same two engine steps the job runs, on the same
-        # input, at the same resolution. Nothing here approximates the mesh.
-        #
-        # It used to skip prepare_source_image and read the heightmap straight
-        # off the filtered grey. That is a different picture: the posterisation
-        # is what assigns a pixel to a bobbin, and with two colours it is the
-        # whole mode — the preview sat at 39.9% ink while the mesh moved from
-        # 38.5% to 0% as the swatches were calibrated. Roughly 100 ms even on a
-        # 20 MP upload, so there is nothing to buy by cutting it short.
-        engine_kwargs, _ = resolve_params(rgb, p)
-        params = GenerationParams(mode=GenerationMode.STANDARD, **engine_kwargs)
-        source = engine_input(rgb, "standard")
-        z = standard_heightmap(prepare_source_image(source, params), params)
-        if params.color_mode == 2 and params.bw_coverage is not None:
-            # Rides along with the preview because it depends on the cut the
-            # visitor is dragging right now; a number computed once at upload
-            # would describe a different setting.
-            extra_headers["X-MangaRelief-Ambiguous"] = "%.4f" % bw_ambiguity(
-                source, params.max_dim, params.max_res_cap, params.bw_coverage)
-
-        changes = [c for c in params.color_changes_z if c > 0]
-        tones = _band_tones(params.sampled_values, params.color_mode)
-
-        # A pixel prints in the colour loaded when its surface is reached, so
-        # its band is how many changes lie at or below its height. Every change
-        # counts, the topmost included: dropping it — as a first version did —
-        # leaves the ink colour unused and, with two colours, paints the whole
-        # image in paper.
-        band = np.zeros(z.shape, dtype=np.int32)
-        for c in changes:
-            band += (z >= c - 1e-9).astype(np.int32)
-        painted = np.array(tones, dtype=np.uint8)[np.clip(band, 0, len(tones) - 1)]
-        # Ridotta solo per la trasmissione, e col nearest: una media pesata
-        # inventerebbe toni che nessuna bobina stampa.
-        ph, pw = painted.shape
-        scale = MOCKUP_MAX_PX / max(ph, pw)
-        if scale < 1.0:
-            painted = cv2.resize(painted, (max(1, int(pw * scale)), max(1, int(ph * scale))),
-                                 interpolation=cv2.INTER_NEAREST)
-        preview = cv2.cvtColor(painted, cv2.COLOR_GRAY2RGB)
-
-    ok, buf = cv2.imencode(".png", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
-    if not ok:
+    png = preview.encode_png(immagine)
+    if png is None:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "preview encoding failed")
 
-    return Response(content=buf.tobytes(), media_type="image/png",
+    return Response(content=png, media_type="image/png",
                     headers={"Cache-Control": "no-store", **extra_headers})
 
 
@@ -517,6 +461,10 @@ def create_job(
         "filament_changes": [],
         "expires_at": iso(default_expiry()),
         "downloaded_at": None,
+        # Il nome com'e' stato caricato: serve solo a farsi riconoscere nella
+        # cronologia, quindi si tiene com'era invece di ridurlo come i nomi dei
+        # file prodotti. Ripulito lo stesso: e' testo di chi chiama.
+        "image_name": display_name(image.filename),
     }
 
     try:
@@ -532,7 +480,11 @@ def create_job(
 
     try:
         runner.submit(job_id, rgb, p.mode.value, engine_kwargs,
-                      source_stem=safe_stem(image.filename))
+                      source_stem=safe_stem(image.filename),
+                      # Solo chi ha un account ha una cronologia, quindi solo
+                      # per lui si conservano miniatura e sorgente.
+                      user_id=user["id"] if user else None,
+                      requested=p)
     except QueueFull as exc:
         get_store().update(job_id, {"status": JobStatus.ERROR.value,
                                     "message": "Busy", "error": str(exc)})
@@ -609,6 +561,197 @@ def download_artifact(job_id: str, kind: str, preview: bool = False):
             "X-MangaRelief-Expires-At": fields["expires_at"],
         },
     )
+
+
+# ------------------------------------------------------------- cronologia
+# Le generazioni di un account sopravvivono ai loro file: i file scadono a 48
+# ore perche' pesano 9 MB l'uno, la voce resta perche' pesa 7 KB. Vedi la
+# migrazione 20260904140000_history.sql per il perche' di ogni pezzo.
+
+
+def _mia_riga(job_id: str, user: Optional[dict]) -> dict:
+    """La riga, se e' di chi la chiede.
+
+    Stessa risposta per «non esiste» e «non e' tua»: distinguerle direbbe a
+    chiunque provi un identificativo se quella generazione esiste.
+    """
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sign in to see your generations")
+    record = get_store().get(job_id)
+    if not record or record.get("user_id") != user["id"] or record.get("hidden_at"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such generation")
+    return record
+
+
+def _voce(record: dict, base_url: str) -> dict:
+    """Una voce di cronologia: la stessa vista del job, piu' cio' che serve a
+    riconoscerla e a rifarla.
+
+    Lo stato e gli allegati vengono da `record_to_view`, non ricalcolati qui:
+    e' la funzione che sa gia' che una riga «done» ma scaduta si legge come
+    scaduta, e due implementazioni di quella regola divergono al primo ritocco.
+    """
+    vista = record_to_view(record, base_url)
+    risolti = (record.get("params") or {}).get("resolved") or {}
+    return {
+        "id": record["id"],
+        "created_at": record.get("created_at"),
+        "image_name": record.get("image_name"),
+        "mode": record.get("mode"),
+        "color_mode": risolti.get("color_mode"),
+        "status": vista.status.value,
+        "expires_at": record.get("expires_at") if vista.artifacts else None,
+        "preview_url": (f"{base_url}api/history/{record['id']}/preview"
+                        if record.get("preview_key") else None),
+        # Rifacibile solo finche' la sorgente c'e': si conserva per le ultime
+        # generazioni di ogni account, poi si pota. La voce resta comunque.
+        "can_regenerate": bool(record.get("source_key")),
+        "filament_changes": [c.model_dump() for c in vista.filament_changes],
+        "artifacts": [a.model_dump() for a in vista.artifacts],
+    }
+
+
+@app.get("/api/history")
+def read_history(request: Request, user: Optional[dict] = Depends(current_user)):
+    """Le generazioni di chi chiede, dalla piu' recente.
+
+    Serve un account: le righe anonime sono legate a un browser, e mostrarle
+    per browser vorrebbe dire far vedere a chi usa lo stesso computer cosa ha
+    generato qualcun altro.
+    """
+    if not user:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sign in to see your generations")
+    base = str(request.base_url)
+    righe = get_store().history(user["id"], settings.history_max)
+    return {"entries": [_voce(r, base) for r in righe],
+            "keep_sources": settings.history_keep_sources}
+
+
+@app.get("/api/history/{job_id}/preview")
+def history_preview(job_id: str):
+    """La miniatura di una voce.
+
+    Senza autenticazione, come i file prodotti: la chiave e' l'identificativo
+    del job, 32 cifre esadecimali casuali. Un'immagine servita a un tag <img>
+    non puo' portare un'intestazione di autorizzazione, e l'alternativa —
+    scaricarla in JavaScript e passarla come blob — costerebbe complicazione
+    per una miniatura di 7 KB che raffigura cio' che chi la vede ha gia' visto.
+    """
+    record = get_store().get(job_id)
+    chiave = (record or {}).get("preview_key")
+    if not record or not chiave or record.get("hidden_at"):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no preview for this generation")
+    try:
+        dati = get_storage().get(chiave)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("preview %s unreadable", job_id, exc_info=True)
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "preview is gone") from exc
+    # Immutabile: una volta scritta non cambia mai, e il browser puo' tenersela.
+    return Response(content=dati, media_type="image/webp",
+                    headers={"Cache-Control": "public, max-age=86400, immutable"})
+
+
+@app.post("/api/history/{job_id}/regenerate", response_model=JobCreated,
+          status_code=status.HTTP_202_ACCEPTED)
+def regenerate(job_id: str, request: Request,
+               user: Optional[dict] = Depends(current_user),
+               x_mangarelief_device: Optional[str] = Header(default=None)):
+    """Rifa' una generazione scaduta dalla sorgente conservata.
+
+    Consuma una generazione della giornata, come qualunque altra: rifare il
+    file costa esattamente quanto farlo la prima volta, e non contarlo sarebbe
+    una porta di servizio sulla quota.
+
+    Riusa i parametri *risolti* dell'originale, non quelli richiesti: i toni
+    campionati erano stati letti sull'immagine intera, e ricalcolarli sulla
+    copia ridotta darebbe un modello leggermente diverso da quello che si sta
+    chiedendo di riavere.
+    """
+    record = _mia_riga(job_id, user)
+    chiave = record.get("source_key")
+    if not chiave:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "this generation is too old to be redone from here: load the artwork again")
+
+    ip_key = hash_ip(client_ip(request))
+    quota.enforce(get_store(), user, quota.clean_device_id(x_mangarelief_device), ip_key)
+
+    try:
+        rgb = decode_or_422(get_storage().get(chiave))
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        log.warning("source of %s unreadable", job_id, exc_info=True)
+        raise HTTPException(status.HTTP_410_GONE,
+                            "the stored artwork is no longer available") from exc
+
+    vecchi = record.get("params") or {}
+    engine_kwargs = dict(vecchi.get("resolved") or {})
+    try:
+        richiesti = JobParams(**(vecchi.get("requested") or {}))
+    except ValidationError:
+        # Una riga scritta da una versione precedente puo' non superare piu' la
+        # validazione di oggi: la miniatura si ricava lo stesso dai risolti.
+        richiesti = JobParams(mode=record.get("mode", "standard"))
+
+    nuovo_id = uuid.uuid4().hex
+    get_store().insert({
+        "id": nuovo_id,
+        "created_at": iso(utcnow()),
+        "user_id": user["id"],
+        "ip_hash": ip_key,
+        "device_id": quota.clean_device_id(x_mangarelief_device),
+        "mode": record.get("mode"),
+        "params": {**vecchi, "regenerated_from": job_id},
+        "status": JobStatus.QUEUED.value,
+        "progress": 0,
+        "message": "Queued",
+        "duration_s": None,
+        "error": None,
+        "artifacts": [],
+        "filament_changes": [],
+        "expires_at": iso(default_expiry()),
+        "downloaded_at": None,
+        "image_name": record.get("image_name"),
+    })
+
+    try:
+        runner.submit(nuovo_id, rgb, record.get("mode"), engine_kwargs,
+                      source_stem=safe_stem(record.get("image_name")),
+                      user_id=user["id"], requested=richiesti)
+    except QueueFull as exc:
+        get_store().update(nuovo_id, {"status": JobStatus.ERROR.value,
+                                      "message": "Busy", "error": str(exc)})
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "server busy, try again shortly",
+                            headers={"Retry-After": "30"}) from exc
+
+    return JobCreated(job_id=nuovo_id, status=JobStatus.QUEUED,
+                      status_url=f"{request.base_url}api/jobs/{nuovo_id}")
+
+
+@app.delete("/api/history/{job_id}", status_code=status.HTTP_204_NO_CONTENT)
+def forget(job_id: str, user: Optional[dict] = Depends(current_user)):
+    """Toglie una voce dalla cronologia e cancella i suoi file.
+
+    La riga resta, marcata `hidden_at`. Non e' prudenza: la riga *e'* il
+    registro su cui si conta la quota, e cancellarla darebbe a chiunque il modo
+    di azzerare il proprio contatore — genera, scarica, cancella, rigenera.
+    Sparisce dalla cronologia e i file se ne vanno davvero; a essere contata
+    resta.
+    """
+    record = _mia_riga(job_id, user)
+    storage = get_storage()
+    for prefisso in (job_id, f"history/{job_id}"):
+        try:
+            storage.delete_prefix(prefisso)
+        except Exception:
+            log.warning("could not delete files of %s", job_id, exc_info=True)
+    get_store().update(job_id, {"hidden_at": iso(utcnow()), "artifacts": [],
+                                "preview_key": None, "source_key": None,
+                                "status": JobStatus.EXPIRED.value, "message": "Deleted"})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/api/internal/cleanup")

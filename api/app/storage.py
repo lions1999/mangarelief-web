@@ -38,6 +38,16 @@ class LocalStorage:
         with open(self._abs(key), "rb") as fh:
             return fh.read()
 
+    def delete(self, key: str) -> bool:
+        """Un oggetto solo. `delete_prefix` cancella cartelle: la sorgente di
+        una voce di cronologia e' un file dentro una cartella che deve restare
+        (accanto c'e' la miniatura, che sopravvive alla potatura)."""
+        path = self._abs(key)
+        if not os.path.isfile(path):
+            return False
+        os.remove(path)
+        return True
+
     def delete_prefix(self, prefix: str) -> int:
         path = self._abs(prefix)
         if not os.path.isdir(path):
@@ -69,6 +79,14 @@ class SupabaseStorage:
                       headers=self.headers, timeout=120.0)
         r.raise_for_status()
         return r.content
+
+    def delete(self, key: str) -> bool:
+        r = httpx.request("DELETE", f"{self.base}/object/{self.bucket}/{key}",
+                          headers=self.headers, timeout=60.0)
+        if r.status_code == 404:
+            return False
+        r.raise_for_status()
+        return True
 
     def delete_prefix(self, prefix: str) -> int:
         listing = httpx.post(

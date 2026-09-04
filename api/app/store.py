@@ -24,7 +24,10 @@ from .config import settings
 
 COLUMNS = ("id", "created_at", "user_id", "ip_hash", "device_id", "mode", "params",
            "status", "progress", "message", "duration_s", "error", "artifacts",
-           "filament_changes", "expires_at", "downloaded_at")
+           "filament_changes", "expires_at", "downloaded_at",
+           # Cronologia: cosa resta quando i file sono scaduti. Vedi la
+           # migrazione 20260904140000_history.sql.
+           "image_name", "preview_key", "source_key", "hidden_at")
 
 
 def utcnow() -> datetime:
@@ -68,9 +71,20 @@ class SqliteStore:
                     artifacts TEXT NOT NULL DEFAULT '[]',
                     filament_changes TEXT NOT NULL DEFAULT '[]',
                     expires_at TEXT,
-                    downloaded_at TEXT
+                    downloaded_at TEXT,
+                    image_name TEXT,
+                    preview_key TEXT,
+                    source_key TEXT,
+                    hidden_at TEXT
                 )
             """)
+            # I database locali nati prima della cronologia non hanno le
+            # colonne nuove: aggiungerle qui evita di dover cancellare .data
+            # a ogni aggiornamento dello schema.
+            presenti = {r["name"] for r in con.execute("PRAGMA table_info(generations)")}
+            for nome in ("image_name", "preview_key", "source_key", "hidden_at"):
+                if nome not in presenti:
+                    con.execute(f"ALTER TABLE generations ADD COLUMN {nome} TEXT")
 
     def _connect(self):
         con = sqlite3.connect(self.path, timeout=30.0)
@@ -150,6 +164,34 @@ class SqliteStore:
             )
             return int(cur.rowcount or 0)
 
+    def history(self, user_id: str, limit: int = 60) -> List[Dict[str, Any]]:
+        """Le generazioni di un account, dalla piu' recente. Le nascoste no:
+        chi ha svuotato una voce non deve rivedersela."""
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT * FROM generations WHERE user_id = ? AND hidden_at IS NULL "
+                "ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def sources_beyond(self, user_id: str, keep: int) -> List[Dict[str, Any]]:
+        """Le voci di quell'account che conservano ancora la sorgente oltre le
+        `keep` piu' recenti: sono quelle da potare.
+
+        La sorgente pesa quindici volte la miniatura, ed e' l'unica cosa nella
+        cronologia che possa riempire il bucket. Le voci restano, con la loro
+        miniatura e i loro parametri; perdono solo il clic che rigenera.
+        """
+        with self._connect() as con:
+            rows = con.execute(
+                "SELECT id, source_key FROM generations "
+                "WHERE user_id = ? AND source_key IS NOT NULL "
+                "ORDER BY created_at DESC LIMIT -1 OFFSET ?",
+                (user_id, keep),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def list_expired(self, now: datetime, limit: int = 200) -> List[Dict[str, Any]]:
         with self._connect() as con:
             rows = con.execute(
@@ -221,6 +263,29 @@ class SupabaseStore:
             headers={**self.headers, "Prefer": "return=representation"}, timeout=30.0)
         r.raise_for_status()
         return len(r.json() or [])
+
+    def history(self, user_id: str, limit: int = 60) -> List[Dict[str, Any]]:
+        r = httpx.get(
+            self.base,
+            params={"user_id": f"eq.{user_id}", "hidden_at": "is.null",
+                    "select": "*", "order": "created_at.desc", "limit": str(limit)},
+            headers=self.headers, timeout=30.0)
+        r.raise_for_status()
+        return r.json()
+
+    def sources_beyond(self, user_id: str, keep: int) -> List[Dict[str, Any]]:
+        # PostgREST non ha un OFFSET senza LIMIT: si chiede una pagina che
+        # comincia dopo le `keep` da tenere. Il tetto alto e' una rete, non un
+        # numero significativo — chi ne ha piu' di cosi' viene potato al giro
+        # successivo.
+        r = httpx.get(
+            self.base,
+            params={"user_id": f"eq.{user_id}", "source_key": "not.is.null",
+                    "select": "id,source_key", "order": "created_at.desc",
+                    "offset": str(keep), "limit": "200"},
+            headers=self.headers, timeout=30.0)
+        r.raise_for_status()
+        return r.json()
 
     def list_expired(self, now: datetime, limit: int = 200) -> List[Dict[str, Any]]:
         r = httpx.get(
