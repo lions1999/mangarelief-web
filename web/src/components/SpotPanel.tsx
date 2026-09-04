@@ -5,6 +5,7 @@
  * spreads into muted tones, and the only way to set it is to watch the preview
  * on the stage change as you drag.
  */
+import Info from "./Info";
 import type { Accents } from "../hooks/useAccents";
 import type { JobParams, RGB } from "../types";
 
@@ -24,10 +25,24 @@ export default function SpotPanel({ accents, params, suggested, disabled, onChan
 
   return (
     <section className="panel">
-      <h2>Accents</h2>
+      <h2>
+        Accents
+        <Info label="accents">
+          <p>
+            A silkscreen, not a reproduction: one or two colours carry the whole
+            image, and everything else is forced to white paper or black
+            linework. Two spools plus black and white, and the panel reads.
+          </p>
+          <p>
+            Coverage decides how far an accent reaches: low keeps it on the
+            vivid pixels only, high pulls in the muted shades around them. It is
+            not a number you can judge in the abstract — drag it and watch the
+            preview.
+          </p>
+        </Info>
+      </h2>
       <p className="hint">
-        Everything that is not an accent is printed white or black. Click the
-        artwork to pick a colour into the selected slot.
+        Click the artwork to pick a colour into the selected slot.
       </p>
 
       <div className="accents">
@@ -77,9 +92,6 @@ export default function SpotPanel({ accents, params, suggested, disabled, onChan
           onChange={(e) => onChange({ spot_coverage: Number(e.target.value) })}
         />
       </label>
-      <p className="hint">
-        Low keeps only vivid pixels on the accent; high pulls in muted shades too.
-      </p>
     </section>
   );
 }

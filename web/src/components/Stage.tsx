@@ -29,6 +29,8 @@ interface Props {
   disabled: boolean;
   onView: (view: StageView) => void;
   onFile: (file: File) => void;
+  /** Il tetto di caricamento del server, in MB; nullo finche' non si sa. */
+  maxMb: number | null;
   onPick: (colour: RGB) => void;
   /** Live: share of the artwork near the two-colour cut, from the preview call. */
   onAmbiguity: (value: number | null) => void;
@@ -43,7 +45,7 @@ function expiryLabel(iso: string | null): string {
 }
 
 export default function Stage({
-  file, params, analysis, job, view, disabled, onView, onFile, onPick, onAmbiguity,
+  file, params, analysis, job, view, disabled, onView, onFile, maxMb, onPick, onAmbiguity,
 }: Props) {
   const spot = params.mode === "spot_color";
   const twoColours = (params.color_mode ?? analysis?.color_mode) === 2;
@@ -87,7 +89,7 @@ export default function Stage({
     return (
       <div className="stage">
         <div className="stage-empty">
-          <Dropzone onFile={onFile} />
+          <Dropzone onFile={onFile} maxMb={maxMb} />
           <p className="hint">
             A manga panel, a logo, a line drawing — anything with clear tonal
             areas. Nothing is generated until you ask for it, and results are

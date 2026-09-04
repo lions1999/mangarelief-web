@@ -11,6 +11,7 @@
  * ignores the rest, and a swatch that does nothing is worse than no swatch.
  */
 import { TONE_LABELS, type Tones } from "../hooks/useTones";
+import Info from "./Info";
 
 interface Props {
   tones: Tones;
@@ -34,7 +35,22 @@ export default function TonesPanel({ tones, disabled, coverage, inkLevel, onCove
     const pct = Math.round(coverage * 100);
     return (
       <section className="panel">
-        <h2>Ink coverage</h2>
+        <h2>
+          Ink coverage
+          <Info label="ink coverage">
+            <p>
+              With two colours there is no tone to sample: every zone comes out
+              either ink or paper. This is the line between them.
+            </p>
+            <p>
+              A zone prints as ink when at least this share of its area is
+              inked, judged over about 0.7 mm — roughly what the nozzle can
+              resolve, so the question is asked at the scale the printer can
+              actually answer. Lower keeps more hatching black, higher keeps
+              more of it paper. Fine linework survives either way.
+            </p>
+          </Info>
+        </h2>
         <label className="field">
           <span>
             Shading darker than <em>{pct}%</em>
@@ -49,15 +65,12 @@ export default function TonesPanel({ tones, disabled, coverage, inkLevel, onCove
             onChange={(e) => onCoverage(Number(e.target.value) / 100)}
           />
         </label>
-        <p className="hint">
-          A zone prints as ink when at least {pct}% of its area is inked, judged
-          over about 0.7 mm — what the nozzle can resolve. Lower keeps more
-          hatching black; higher keeps more of it paper. Fine linework survives
-          either way.
-          {inkLevel !== null && (
-            <> Ink here is anything darker than {inkLevel}, read from the image's histogram.</>
-          )}
-        </p>
+        {inkLevel !== null && (
+          <p className="hint">
+            Ink here is anything darker than {inkLevel}, read from this image's
+            own histogram.
+          </p>
+        )}
       </section>
     );
   }
@@ -65,7 +78,22 @@ export default function TonesPanel({ tones, disabled, coverage, inkLevel, onCove
 
   return (
     <section className="panel">
-      <h2>Tones</h2>
+      <h2>
+        Tones
+        <Info label="tones">
+          <p>
+            These greys are what the relief is calibrated from: each one becomes
+            a printed level. Get the midtone wrong and a whole face lands on the
+            wrong filament, which is why they can be sampled by hand instead of
+            trusting the automatic reading.
+          </p>
+          <p>
+            A click averages the small disc under the cursor, never a single
+            pixel: on hatched art one pixel is either the line or the paper
+            between lines — never the tone of the area you meant to point at.
+          </p>
+        </Info>
+      </h2>
 
       <div className="accents">
         {active.map((i) => (
@@ -89,9 +117,7 @@ export default function TonesPanel({ tones, disabled, coverage, inkLevel, onCove
       <p className="hint">
         {TONE_LABELS[slot]} · {values[slot]}
         {manual ? "" : " · detected automatically"} — click the artwork to sample
-        into this slot. A click averages the small disc under the cursor: on
-        hatched art a single pixel is either the line or the paper between
-        lines, never the tone of the area.
+        into this slot.
         {picked && picked.value !== picked.clamped && (
           <>
             {" "}Sampled {picked.value}, kept at {picked.clamped} so the tones

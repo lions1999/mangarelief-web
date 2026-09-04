@@ -3,20 +3,44 @@
  * enforce. Last in the sidebar: they are the settings you touch once, after
  * the colours are right.
  */
+import Info from "./Info";
 import type { JobParams } from "../types";
 
 interface Props {
   params: JobParams;
   disabled: boolean;
+  /** Il tetto di risoluzione del piano gratuito, dal server. Assente = non lo diciamo. */
+  maxRes: number | null;
   onChange: (patch: Partial<JobParams>) => void;
 }
 
-export default function PrintPanel({ params, disabled, onChange }: Props) {
+export default function PrintPanel({ params, disabled, maxRes, onChange }: Props) {
   const layers = Math.round((params.max_h - params.base_h) / params.layer_height);
 
   return (
     <section className="panel">
-      <h2>Size and print</h2>
+      <h2>
+        Size and print
+        <Info label="size and print">
+          <p>
+            <strong>Total height</strong> is the tallest point of the relief and
+            <strong> base thickness</strong> the flat slab underneath it. What
+            lies between the two is what gets terraced, so a thicker base on the
+            same total height leaves less room for the levels.
+          </p>
+          <p>
+            <strong>Layer height</strong> is the printer's own step. Every level
+            snaps to a multiple of it, so a finer layer buys finer terraces and a
+            longer print.
+          </p>
+          {maxRes !== null && (
+            <p>
+              Free generations run at draft resolution, {maxRes} px on the long
+              side: enough to print, not the finest detail the engine can do.
+            </p>
+          )}
+        </Info>
+      </h2>
       <label className="field">
         <span>
           Long side <em>{params.max_dim} mm</em>
@@ -78,11 +102,7 @@ export default function PrintPanel({ params, disabled, onChange }: Props) {
         </select>
       </label>
 
-      <p className="hint">
-        {layers} printed layers above the base. Free generations run at draft
-        resolution (800 px) — enough to print, not the finest detail the engine
-        can do.
-      </p>
+      <p className="hint">{layers} printed layers above the base.</p>
     </section>
   );
 }

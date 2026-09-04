@@ -85,6 +85,7 @@ export default function App() {
     [],
   );
 
+  const maxMb = limits?.max_upload_mb ?? null;
   const tones = useTones(params, analysis, patch);
   const accents = useAccents(params, patch);
   const onPick = (colour: RGB) =>
@@ -199,7 +200,7 @@ export default function App() {
                 <Dropzone onFile={onFile} disabled={busy} compact />
               </>
             ) : (
-              <Dropzone onFile={onFile} disabled={busy} compact />
+              <Dropzone onFile={onFile} disabled={busy} maxMb={maxMb} compact />
             )}
           </section>
 
@@ -234,7 +235,8 @@ export default function App() {
             />
           )}
 
-          <PrintPanel params={params} disabled={busy} onChange={patch} />
+          <PrintPanel params={params} disabled={busy}
+                      maxRes={limits?.max_res_cap ?? null} onChange={patch} />
         </div>
 
         <div className="side-foot">
@@ -265,6 +267,7 @@ export default function App() {
           disabled={busy}
           onView={setView}
           onFile={onFile}
+          maxMb={maxMb}
           onPick={onPick}
           onAmbiguity={setAmbiguous}
         />

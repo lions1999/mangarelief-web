@@ -346,6 +346,8 @@ web/
   src/api.ts              The only module that knows the API exists
   src/components/Stage.tsx         The stage: artwork picker or finished model
   src/components/         Dropzone, look, print, tones, accents, progress
+  src/components/Welcome.tsx       First visit: what it does, what it costs
+  src/components/Info.tsx          The «i» popovers next to the headings
   src/components/ModelViewer.tsx   three.js STL viewer
   src/hooks/              Debounced mockup, tone slots, accent slots
 supabase/         Schema as migrations
@@ -364,6 +366,16 @@ the loop this tool is used in is "look at the model, go back, move a tone,
 generate again"; discarding the picker on success would make that a reload.
 The preview mockup is the control you actually judge Spot Colour by, so it gets
 half the stage rather than a thumbnail inside a form.
+
+Under each control the sidebar shows only what *changes*: the filament-change
+count, the sampled value, the warning when two colours are the wrong tool. The
+durable explanation — what a colour actually costs to print, why a click
+averages a disc instead of a pixel, what the coverage threshold measures — sits
+behind an `i` next to the heading. It reads well the first time and becomes
+noise on the tenth, and on the tenth it is standing between you and the next
+control. The popover opens on click, not on hover, because a phone has no
+hover and an explanation only the mouse can reach is one half the visitors
+never see.
 
 Below 900px the two stack and the window scrolls again — a sidebar and a stage
 cannot both be usable in one phone viewport — with Generate stuck to the bottom

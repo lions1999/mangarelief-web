@@ -3,13 +3,17 @@ import { useRef, useState } from "react";
 interface Props {
   onFile: (file: File) => void;
   disabled?: boolean;
+  /**
+   * Il tetto del server, in MB. Nullo finche' non si sa: in quel caso non si
+   * controlla e non si annuncia niente — sbagliare il numero qui vuol dire
+   * rifiutare un file che il server avrebbe accettato.
+   */
+  maxMb?: number | null;
   /** The small variant that sits in the sidebar once artwork is loaded. */
   compact?: boolean;
 }
 
-const MAX_MB = 12;
-
-export default function Dropzone({ onFile, disabled, compact }: Props) {
+export default function Dropzone({ onFile, disabled, maxMb, compact }: Props) {
   const input = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const [problem, setProblem] = useState("");
@@ -18,8 +22,8 @@ export default function Dropzone({ onFile, disabled, compact }: Props) {
     if (!file) return;
     // Mirrors the server's limit so an oversize file fails instantly instead of
     // after a full upload.
-    if (file.size > MAX_MB * 1024 * 1024) {
-      setProblem(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_MB} MB`);
+    if (maxMb != null && file.size > maxMb * 1024 * 1024) {
+      setProblem(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${maxMb} MB`);
       return;
     }
     setProblem("");
@@ -46,7 +50,7 @@ export default function Dropzone({ onFile, disabled, compact }: Props) {
         <span>
           {compact
             ? "drop or click"
-            : `or click to choose — PNG, JPG, WebP, HEIC · up to ${MAX_MB} MB`}
+            : `or click to choose — PNG, JPG, WebP, HEIC${maxMb != null ? ` · up to ${maxMb} MB` : ""}`}
         </span>
         <input
           ref={input}

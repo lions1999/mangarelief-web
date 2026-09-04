@@ -429,6 +429,58 @@ body { margin: 0; }
 }
 .modal-actions .primary { width: auto; flex: 0 0 auto; }
 
+/* ---------------------------------------------------------------- info */
+/* Il riquadro eredita da un <h2>: grassetto, maiuscoletto e spaziatura vanno
+   annullati, altrimenti la spiegazione si legge come un altro titolo. */
+.info { position: relative; display: inline-block; }
+.info-btn {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: 6px;
+  vertical-align: 1px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.info-btn::before { content: "i"; }
+.info-btn:hover,
+.info-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--ink); }
+
+.info-pop {
+  /* Fuori dal flusso: la colonna delle impostazioni scorre e ritaglia. La
+     posizione la calcola il componente, vedi Info.tsx. */
+  position: fixed;
+  z-index: 60;
+  /* Se non c'e' spazio ne' sopra ne' sotto, scorre invece di sbordare. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: block;
+  width: 262px;
+  max-width: 76vw;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel-2);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: normal;
+}
+.info-pop p { margin: 0; }
+.info-pop p + p { margin-top: 8px; }
+.info-pop strong { color: var(--ink); font-weight: 600; }
+
 /* ----------------------------------------------------------- benvenuto */
 /* Piu' largo della finestra di accesso perche' qui si legge, non si compila:
    a 420px le tre righe delle regole diventano sei e sembrano un contratto. */

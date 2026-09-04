@@ -6,6 +6,7 @@
  * weighs, because each extra colour is one more bobbin to own and one more
  * pause to stand through.
  */
+import Info from "./Info";
 import type { Analysis, JobParams, Mode } from "../types";
 
 interface Props {
@@ -56,7 +57,22 @@ export default function LookPanel({ params, analysis, disabled, ambiguous, onCha
 
       {analysis && params.mode === "standard" && (
         <>
-          <h2>How many colours</h2>
+          <h2>
+            How many colours
+            <Info label="how many colours">
+              <p>
+                One colour is the paper, every other one is a filament you load
+                by hand: the printer stops at a set height and waits for you to
+                swap the spool. Two colours means one pause, four means three.
+              </p>
+              <p>
+                The suggestion comes from how much of the artwork is halftone —
+                hatching and screentone rather than flat black or white. Line
+                art has little of it and prints well in two; heavily shaded art
+                needs three or four, or that shading collapses into blocks.
+              </p>
+            </Info>
+          </h2>
           <div className="toggles">
             {[2, 3, 4].map((n) => (
               <button
