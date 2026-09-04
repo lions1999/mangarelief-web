@@ -378,6 +378,29 @@ additive and idempotent, so applying one before its code ships is always safe;
 the reverse is not. `scripts/deploy_cloudrun.sh` now reads this endpoint after
 deploying and fails loudly rather than printing a URL that looks fine.
 
+### The store contract
+
+`api/tests/contract_store.py` is one list of assertions written against the
+store *interface* — no SQL, no URLs, nothing specific to either back end — and
+`esercita(store, check)` runs it against whatever store it is handed. The smoke
+suite hands it `SqliteStore`; the same list is what a real PostgREST has to
+satisfy.
+
+It exists because there are two implementations of the same store and CI only
+ever ran one of them — the other is the one serving the site. What the suite
+did check about Supabase was the URL the code *builds*, judged by that same
+code: if a belief about PostgREST is wrong, the code and its test are wrong
+together and agree perfectly.
+
+Two rules for anything added there:
+
+- **Never assume an empty database.** Against a real project it runs on a table
+  that already holds real rows: every assertion creates its own, with its own
+  identifiers, and looks only at those.
+- **Never rely on equal `created_at`.** Ordering between rows sharing an
+  instant is undefined in Postgres while SQLite follows the rowid — a test
+  leaning on that passes here and is a coin toss there.
+
 ### Supabase
 
 The schema lives in `supabase/migrations/` — the layout the Supabase GitHub

@@ -841,6 +841,16 @@ finally:
     _auth.reset_cache()
 
 
+# ------------------------------------------------- il contratto dell'archivio
+# Le stesse asserzioni che un giorno gireranno contro un PostgREST vero. Qui
+# girano su SQLite: gia' cosi' servono, perche' scrivono in un posto solo cosa
+# le due implementazioni devono garantire — finora stava nella mia testa e
+# veniva riscritto due volte, sperando che coincidessero.
+from tests.contract_store import esercita as _contratto  # noqa: E402
+
+_contratto(get_store(), check, "sqlite")
+
+
 # ------------------------------------------------------------------ cleanup
 check("cleanup without token -> 401",
       client.post("/api/internal/cleanup").status_code == 401)
