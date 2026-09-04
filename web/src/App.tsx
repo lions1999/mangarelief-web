@@ -20,7 +20,7 @@ import SignIn from "./components/SignIn";
 import Turnstile, { turnstileEnabled } from "./components/Turnstile";
 import { useAccents } from "./hooks/useAccents";
 import { useTones } from "./hooks/useTones";
-import { analyze, createJob, getJob, getQuota } from "./api";
+import { ApiError, analyze, createJob, getJob, getQuota } from "./api";
 import { getSession, setSession, type Session } from "./session";
 import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type Quota, type RGB } from "./types";
 
@@ -46,7 +46,16 @@ export default function App() {
   const stage = useRef<HTMLDivElement>(null);
 
   const refreshQuota = useCallback(() => {
-    getQuota().then(setQuota).catch(() => setQuota(null));
+    getQuota().then(setQuota).catch((err) => {
+      setQuota(null);
+      // Sessione rifiutata dal server: revocata, o l'account e' stato
+      // cancellato. Restare "collegati" con un contatore che non arriva mai
+      // e' lo stato peggiore — sembra tutto a posto e non funziona niente.
+      if (err instanceof ApiError && err.status === 401) {
+        setSession(null);
+        setSessionState(null);
+      }
+    });
   }, []);
 
   useEffect(() => { refreshQuota(); }, [refreshQuota, session]);

@@ -33,7 +33,12 @@ export default function AccountBar({ session, quota, onSignIn, onSignOut }: Prop
   const out = quota && !senzaTetto ? (quota.remaining ?? 0) <= 0 : false;
 
   return (
-    <div className="account-bar">
+    <div className="account">
+      {/* Prima riga: due elementi corti e prevedibili. L'indirizzo email non
+          sta qui — e' l'unica cosa di lunghezza arbitraria, e messo accanto al
+          pulsante lo comprimeva fino a "sig...". Va sotto, dove ha tutta la
+          larghezza per se' e puo' accorciarsi senza portarsi dietro nessuno. */}
+      <div className="account-bar">
       <span className={`quota${out ? " out" : ""}`}>
         {quota ? (
           senzaTetto ? (
@@ -49,12 +54,13 @@ export default function AccountBar({ session, quota, onSignIn, onSignOut }: Prop
         )}
       </span>
       {session ? (
-        <span className="account-who" title={session.email ?? ""}>
-          {session.email}
-          <button type="button" className="link" onClick={onSignOut}>sign out</button>
-        </span>
+        <button type="button" className="link" onClick={onSignOut}>sign out</button>
       ) : (
         <button type="button" className="link" onClick={onSignIn}>sign in</button>
+      )}
+      </div>
+      {session?.email && (
+        <p className="account-who" title={session.email}>{session.email}</p>
       )}
     </div>
   );

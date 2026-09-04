@@ -429,27 +429,28 @@ body { margin: 0; }
 }
 .modal-actions .primary { width: auto; flex: 0 0 auto; }
 
-.account-bar {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+.account {
   margin-top: 12px;
   padding-top: 11px;
   border-top: 1px solid var(--line);
   font-size: 12.5px;
 }
-.account-who {
+.account-bar {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  color: var(--muted);
+  justify-content: space-between;
+  gap: 10px;
 }
-.account-who > :first-child {
+/* `flex-shrink: 0` sul pulsante e non solo l'ellissi sull'indirizzo: sono due
+   difese diverse. Senza, un contenuto lungo accanto comprime il pulsante fino
+   a renderlo illeggibile — che e' esattamente com'era. */
+.account-bar .link { flex: 0 0 auto; }
+.account-who {
+  margin: 4px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--muted);
 }
 .quota { color: var(--muted); }
 .quota strong { color: var(--ink); font-size: 15px; }
