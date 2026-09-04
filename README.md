@@ -407,6 +407,28 @@ additive and idempotent, so applying one before its code ships is always safe;
 the reverse is not. `scripts/deploy_cloudrun.sh` now reads this endpoint after
 deploying and fails loudly rather than printing a URL that looks fine.
 
+### `web/tests/`
+
+`account_bar.py` drives a real browser against the built site. It is committed,
+unlike the throwaway scripts this project usually leans on, because the defect
+it covers has now come back twice in two different places for the same reason:
+that bar mixes text of unknown length (an email address) with controls that
+must stay readable, and every time something is added to the row the elastic
+part gives way again. First `sign out` was squeezed to `sig…`; then, once the
+history link joined it, the address started truncating itself.
+
+It measures clipping rather than judging looks — an element is clipped when
+`scrollWidth > clientWidth`, which is a question the browser can answer.
+
+```bash
+cd web && npm run build && npx vite preview --port 4173   # one terminal
+python web/tests/account_bar.py                           # the other
+```
+
+Not wired into CI: that would mean a browser in the workflow for one file. It
+is here so it survives, and so the next person to add something to that row has
+something to run.
+
 ### The store contract
 
 `api/tests/contract_store.py` is one list of assertions written against the

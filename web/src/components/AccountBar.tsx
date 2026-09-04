@@ -50,10 +50,16 @@ export default function AccountBar({ session, quota, onSignIn, onSignOut, onHist
         <p className="account-note">one frees up {whenFree(quota.reset_at)}</p>
       )}
 
-      <div className="account-row">
-        {session?.email && (
-          <span className="account-who" title={session.email}>{session.email}</span>
-        )}
+      {/* L'indirizzo ha una riga sua. E' l'unico pezzo di lunghezza ignota qui
+          dentro, e in una riga condivisa e' sempre lui a cedere: prima
+          schiacciava "sign out" fino a "sig...", e appena accanto e' comparso
+          un secondo comando ha ricominciato a farsi tagliare da solo. Da solo
+          su una riga non toglie spazio a nessuno e nessuno ne toglie a lui. */}
+      {session?.email && (
+        <p className="account-who" title={session.email}>{session.email}</p>
+      )}
+
+      <div className="account-links">
         {/* La cronologia esiste solo con un account: senza, il collegamento
             porterebbe a una schermata che dice soltanto di accedere. */}
         {session && (

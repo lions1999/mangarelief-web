@@ -638,10 +638,26 @@ body { margin: 0; }
 .account-row + .account-row { margin-top: 4px; }
 .account-row strong { color: var(--ink); font-size: 13.5px; }
 .account-row strong.out { color: var(--accent); }
-/* Il pulsante non deve restringersi: e' la difesa che manca sempre quando si
+/* I comandi non si restringono mai: e' la difesa che manca sempre quando si
    ragiona solo di ellissi, ed e' come "sign out" era finito a leggersi "sig...". */
-.account-row .link { flex: 0 0 auto; }
-.account-who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-row .link,
+.account-links .link { flex: 0 0 auto; }
+
+/* L'indirizzo su una riga sua: e' l'unico pezzo di lunghezza ignota, e in una
+   riga condivisa e' sempre lui a cedere — o a far cedere il vicino. */
+.account-who {
+  display: block;
+  margin: 5px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-links {
+  display: flex;
+  justify-content: flex-end;
+  gap: 14px;
+  margin-top: 4px;
+}
 .account-note { margin: 2px 0 0; font-size: 11.5px; color: var(--accent); }
 .quota strong { color: var(--ink); font-size: 15px; }
 .quota.out strong { color: var(--accent); }
