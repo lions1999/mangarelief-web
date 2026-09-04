@@ -22,8 +22,10 @@ import hashlib
 import hmac
 import json
 import os
+import subprocess
 import sys
 import time
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -83,8 +85,39 @@ if not attendi():
     print(f"PostgREST non risponde su {URL}")
     sys.exit(2)
 
+def nuovo_utente() -> str:
+    """Un account vero nella tabella a cui `user_id` fa riferimento.
+
+    Qui la chiave esterna esiste per davvero, come in produzione: senza una
+    riga in auth.users l'inserimento viene rifiutato. Su SQLite `user_id` e'
+    testo e accetta qualunque cosa — e' esattamente il tipo di divergenza per
+    cui questo file esiste, e la prima che ha trovato.
+
+    Si passa da psql e non da PostgREST perche' lo schema auth non e' esposto,
+    e non deve esserlo: e' della piattaforma, non nostro.
+    """
+    uid = str(uuid.uuid4())
+    subprocess.run(
+        ["psql", "-v", "ON_ERROR_STOP=1", "-q", "-c",
+         f"insert into auth.users (id, email) values ('{uid}', '{uid}@contract.test')"],
+        check=True, capture_output=True,
+        env={**os.environ,
+             "PGHOST": os.environ.get("PGHOST", "localhost"),
+             "PGUSER": os.environ.get("PGUSER", "postgres"),
+             "PGDATABASE": os.environ.get("PGDATABASE", "mrtest")})
+    return uid
+
+
 servizio = SupabaseStore(URL, gettone("service_role"), rest_path="")
-esercita(servizio, check, "postgrest")
+try:
+    esercita(servizio, check, "postgrest", nuovo_utente=nuovo_utente)
+except httpx.HTTPStatusError as exc:
+    # Il corpo della risposta e' l'unica parte utile di un 400 di PostgREST, e
+    # raise_for_status lo lascia fuori dal messaggio. Senza, un fallimento qui
+    # dice solo "400 Bad Request", che e' quanto sapevamo prima di chiedere.
+    print(f"FAIL [postgrest] richiesta rifiutata | {exc.request.method} "
+          f"{exc.request.url} -> {exc.response.status_code} {exc.response.text[:400]}")
+    fails.append("richiesta rifiutata")
 
 # --------------------------------------------------------------------- RLS
 # La tabella ha RLS attivo e nessuna policy: chi non e' service_role non deve

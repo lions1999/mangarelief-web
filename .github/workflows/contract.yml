@@ -90,6 +90,13 @@ jobs:
       - name: Run the store contract
         env:
           SUPABASE_TEST_URL: http://localhost:3000
+          # La prova registra i propri account in auth.users: la chiave esterna
+          # su user_id e' vera qui come in produzione, e psql e' l'unico modo
+          # per arrivare a quello schema — PostgREST espone solo public, e cosi'
+          # deve restare.
+          PGHOST: localhost
+          PGUSER: postgres
+          PGDATABASE: mrtest
         run: python api/tests/contract_supabase.py
 
       - name: PostgREST logs (on failure)

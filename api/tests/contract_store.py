@@ -22,6 +22,13 @@ Due regole per chi ci aggiunge qualcosa:
 - **Niente parita' di `created_at`.** L'ordine fra righe con lo stesso istante
   non e' definito in Postgres, mentre in SQLite segue il rowid: una prova che
   ci si appoggiasse passerebbe qui e sarebbe una moneta lanciata li'.
+- **Gli identificativi di account arrivano da `nuovo_utente`, mai inventati.**
+  Su SQLite `user_id` e' testo e accetta qualunque cosa; su Postgres e' un
+  `uuid` con una chiave esterna verso la tabella degli utenti. Le prime righe
+  scritte qui inventavano stringhe: passavano su SQLite e su Postgres
+  rispondevano `invalid input syntax for type uuid`, poi `violates foreign key
+  constraint`. E' la divergenza che questo file esiste per trovare — l'ha
+  trovata su se' stesso al primo giro.
 """
 
 from __future__ import annotations
@@ -45,11 +52,21 @@ class Fabbrica:
     che dipendesse da quello starebbe misurando il caso, non l'accordo.
     """
 
-    def __init__(self):
+    def __init__(self, nuovo_utente: Optional[Callable[[], str]] = None):
         self.marchio = uuid.uuid4().hex[:12]
+        self.nuovo_utente = nuovo_utente or (lambda: str(uuid.uuid4()))
 
     def id(self, etichetta: str = "") -> str:
         return f"{self.marchio}{etichetta}{uuid.uuid4().hex}"[:32]
+
+    def utente(self) -> str:
+        """Un identificativo di account valido *e* registrato.
+
+        Chi esegue il contratto decide cosa voglia dire registrato: su SQLite
+        niente, su un Postgres vero una riga in auth.users, perche' altrimenti
+        la chiave esterna rifiuta l'inserimento.
+        """
+        return self.nuovo_utente()
 
     def riga(self, **modifiche) -> Dict[str, Any]:
         base: Dict[str, Any] = {
@@ -79,14 +96,21 @@ class Fabbrica:
         return base
 
 
-def esercita(store, check: Callable[..., None], dove: str = "") -> None:
-    """Esegue il contratto contro `store`, riportando con `check`."""
-    f = Fabbrica()
+def esercita(store, check: Callable[..., None], dove: str = "",
+             nuovo_utente: Optional[Callable[[], str]] = None) -> None:
+    """Esegue il contratto contro `store`, riportando con `check`.
+
+    `nuovo_utente` restituisce un identificativo di account utilizzabile su
+    quell'archivio, registrandolo se serve. Senza, se ne genera uno a caso: va
+    bene dove `user_id` e' solo testo, non dove e' un uuid con una chiave
+    esterna dietro.
+    """
+    f = Fabbrica(nuovo_utente)
     p = f"[{dove}] " if dove else ""
     finestra = _ora() - timedelta(hours=24)
 
     # ---------------------------------------------------------- andata e ritorno
-    r = f.riga(user_id=f.id("u"), ip_hash="ip-" + f.marchio, device_id="dev-" + f.marchio,
+    r = f.riga(user_id=f.utente(), ip_hash="ip-" + f.marchio, device_id="dev-" + f.marchio,
                image_name="Roger — pagina 12.png")
     store.insert(r)
     letta = store.get(r["id"])
@@ -158,8 +182,8 @@ def esercita(store, check: Callable[..., None], dove: str = "") -> None:
     # anonime di chiunque altro abbia usato quel dispositivo.
     disp = "devl-" + f.marchio
     altro_disp = "devx-" + f.marchio
-    mio = f.id("m")
-    tuo = f.id("t")
+    mio = f.utente()
+    tuo = f.utente()
 
     anonima = f.riga(device_id=disp, created_at=iso(_ora() - timedelta(hours=2)))
     gia_di_altri = f.riga(device_id=disp, user_id=tuo, created_at=iso(_ora() - timedelta(hours=3)))
@@ -196,7 +220,7 @@ def esercita(store, check: Callable[..., None], dove: str = "") -> None:
     check(p + "il limite viene rispettato", len(store.list_expired(_ora(), limit=1)) <= 1)
 
     # --------------------------------------------------------------- cronologia
-    tizio = f.id("c")
+    tizio = f.utente()
     # Istanti distinti di proposito: a parita' di created_at l'ordine non e'
     # definito in Postgres, e una prova che ci contasse sarebbe una moneta.
     voci = [f.riga(user_id=tizio, source_key=f"history/{i}/source.webp",
