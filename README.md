@@ -108,6 +108,31 @@ Add `?preview=true` for the in-page viewer: same bytes, served inline, and it
 does *not* start the countdown — looking at a model in the browser is not taking
 it.
 
+### `POST /api/auth/code`
+`{email}`. Sends a six-digit code. A magic link would open a new tab and lose
+whatever the visitor had already set up on the page, which is why it is a code.
+
+The request goes through the API rather than straight to Supabase from the
+browser, because this is the only place that can refuse disposable mailboxes
+and fold aliases onto one identity: `m.ario+x@gmail.com` and `mario@gmail.com`
+are one inbox and must be one account, or the per-account quota is bypassed by
+typing a different alias. The answer is the same whether or not the address is
+already registered — telling them apart would leak who has an account here.
+
+The blocklist (8700+ domains) lives in the repo, so the check costs no network
+call; a weekly Action refreshes it and refuses an update that looks broken.
+It is not a wall: the anon key is public, so an account *can* be created around
+this endpoint. What makes such an account useless is that every authenticated
+request re-checks the domain.
+
+### `POST /api/auth/verify`
+`{email, code, device_id?}` → session tokens. Also attributes to the new
+account the generations already made anonymously from that browser, so someone
+who tries twice and then signs up does not restart with the full allowance.
+
+### `POST /api/auth/refresh`
+`{refresh_token}` → a fresh session.
+
 ### `POST /api/internal/cleanup`
 Deletes expired artifacts. Requires the `X-Cleanup-Token` header; called nightly
 by `.github/workflows/cleanup.yml`.
@@ -225,6 +250,7 @@ Everything is an env var, so the same image runs locally and in production.
 | `SUPABASE_URL` | Cloud Run | Project URL. **Absent, the service silently runs in local mode** — SQLite inside the container, files lost on restart |
 | `SUPABASE_SERVICE_KEY` | Cloud Run | Service-role key: bypasses row level security. Server-side only, never in a browser |
 | `SUPABASE_BUCKET` | Cloud Run | Bucket for the produced files. Default `generations` |
+| `SUPABASE_ANON_KEY` | Cloud Run | Public key, used only for the sign-in endpoints. Falls back to the service key when unset — it works, but it is more powerful than the job needs |
 | `CORS_ORIGINS` | Cloud Run | Comma-separated origins allowed to call the API. A trailing slash used to break every call; it is stripped on read now |
 | `CLEANUP_TOKEN` | Cloud Run **and** GitHub | Shared secret for the cleanup endpoint. Must match on both sides; empty gives `503`, wrong gives `401` |
 | `IP_HASH_SALT` | Cloud Run | Salt for the stored IP hashes. **Leaving it unset keeps the public default from the source, which makes those hashes reversible by anyone** |

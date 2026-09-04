@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import timedelta
 import re
 import uuid
 from urllib.parse import urlparse
@@ -28,14 +29,17 @@ from engine import (GenerationMode, GenerationParams, prepare_source_image,
 from engine.color_utils import classify_spot_pixels, downsample_for_analysis
 
 from .analysis import analyze, bw_ambiguity, engine_input, resolve_params
+from . import auth as auth_mod
 from .auth import current_user
+from . import emails
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import safe_stem, QueueFull, runner
 from .limits import clamp_to_anonymous_tier, hash_ip, turnstile_ok
 from . import quota
-from .schemas import (AnalysisResult, Artifact, FilamentChange, JobCreated,
-                      JobParams, JobStatus, JobView)
+from .schemas import (AnalysisResult, Artifact, CodeRequest, FilamentChange,
+                      JobCreated, JobParams, JobStatus, JobView, RefreshRequest,
+                      SessionOut, VerifyRequest)
 from .storage import get_storage
 from .store import (get_store, iso, parse_iso, shortened_expiry, default_expiry,
                     utcnow)
@@ -340,6 +344,77 @@ def _disposition(kind: str, filename: str) -> str:
     from urllib.parse import quote
     plain = filename.encode("ascii", "replace").decode("ascii").replace('"', "")
     return f"{kind}; filename=\"{plain}\"; filename*=UTF-8''{quote(filename)}"
+
+
+@app.post("/api/auth/code", status_code=status.HTTP_204_NO_CONTENT)
+def auth_code(body: CodeRequest, request: Request):
+    """Manda un codice di sei cifre all'indirizzo indicato.
+
+    Passa di qui e non dal browser direttamente perche' e' l'unico punto in cui
+    possiamo rifiutare le caselle usa-e-getta e ricondurre gli alias a una sola
+    identita' — `m.ario+x@gmail.com` e `mario@gmail.com` sono la stessa casella
+    e devono essere lo stesso account, altrimenti la quota si aggira creando
+    alias a raffica.
+
+    Risponde uguale che l'indirizzo sia gia' registrato o no: distinguere
+    sarebbe un modo per scoprire chi ha un account qui.
+    """
+    raw = (body.email or "").strip()
+    if not emails.is_valid(raw):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "indirizzo email non valido")
+    if emails.is_disposable(raw):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            "gli indirizzi temporanei non sono accettati, usane uno permanente")
+    auth_mod.send_code(emails.normalize(raw), hash_ip(client_ip(request)))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.post("/api/auth/verify", response_model=SessionOut)
+def auth_verify(body: VerifyRequest):
+    """Scambia il codice con una sessione, e attribuisce all'account le
+    generazioni gia' fatte da anonimo su questo browser.
+
+    Il collegamento avviene qui, nello stesso passaggio: chi ha provato due
+    volte e poi si registra non riparte dal totale pieno — ed e' scritto nel
+    messaggio di benvenuto, perche' scoprirlo dopo sarebbe una sorpresa
+    sgradevole.
+    """
+    email = emails.normalize((body.email or "").strip())
+    sess = auth_mod.verify_code(email, body.code.strip())
+    user = sess.get("user") or {}
+    uid = user.get("id")
+    if not uid or not sess.get("access_token"):
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY,
+                            "the sign-in service returned an unusable session")
+
+    linked = 0
+    device = quota.clean_device_id(body.device_id)
+    if device:
+        since = utcnow() - timedelta(hours=settings.quota_window_h)
+        try:
+            linked = get_store().link_device(device, uid, since)
+        except Exception:  # noqa: BLE001
+            # Un fallimento qui regalerebbe generazioni, non le toglierebbe:
+            # meglio accedere comunque che bloccare chi si sta registrando.
+            log.warning("could not link device generations", exc_info=True)
+
+    return SessionOut(access_token=sess["access_token"],
+                      refresh_token=sess.get("refresh_token", ""),
+                      expires_at=sess.get("expires_at"),
+                      email=user.get("email"), user_id=uid, linked=linked)
+
+
+@app.post("/api/auth/refresh", response_model=SessionOut)
+def auth_refresh(body: RefreshRequest):
+    sess = auth_mod.refresh_session(body.refresh_token)
+    user = sess.get("user") or {}
+    if not user.get("id") or not sess.get("access_token"):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sessione scaduta, accedi di nuovo")
+    return SessionOut(access_token=sess["access_token"],
+                      refresh_token=sess.get("refresh_token", ""),
+                      expires_at=sess.get("expires_at"),
+                      email=user.get("email"), user_id=user["id"])
 
 
 @app.get("/api/quota")

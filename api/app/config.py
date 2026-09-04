@@ -33,6 +33,9 @@ class Settings:
     supabase_url: str = field(default_factory=lambda: _env("SUPABASE_URL").rstrip("/"))
     # Service-role key: server-side only, never shipped to a browser.
     supabase_key: str = field(default_factory=lambda: _env("SUPABASE_SERVICE_KEY"))
+    # Chiave pubblica, usata solo per gli endpoint di autenticazione. E' fatta
+    # per stare in un browser: senza, si ripiega sulla service-role.
+    supabase_anon_key: str = field(default_factory=lambda: _env("SUPABASE_ANON_KEY"))
     supabase_bucket: str = field(default_factory=lambda: _env("SUPABASE_BUCKET", "generations"))
     local_data_dir: str = field(default_factory=lambda: _env("LOCAL_DATA_DIR", "./.data"))
 

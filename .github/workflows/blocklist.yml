@@ -1,0 +1,57 @@
+# L'elenco dei domini usa-e-getta invecchia: ne nascono di nuovi ogni
+# settimana. Tenerlo nel repo lo rende una ricerca in memoria invece di una
+# chiamata di rete nel percorso di registrazione; questo lo tiene fresco senza
+# introdurre quella dipendenza a runtime.
+name: blocklist
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"        # lunedì, 04:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scarica l'elenco aggiornato
+        run: |
+          curl -fsS --retry 3 --retry-delay 5 \
+            https://raw.githubusercontent.com/disposable-email-domains/disposable-email-domains/master/disposable_email_blocklist.conf \
+            -o /tmp/blocklist.txt
+          test -s /tmp/blocklist.txt
+
+      - name: Rifiuta un elenco che sembra rotto
+        # Una lista troncata o che blocca i provider veri farebbe piu' danni
+        # di una vecchia: meglio tenersi quella che c'e'.
+        run: |
+          righe=$(wc -l < /tmp/blocklist.txt)
+          if [ "$righe" -lt 1000 ]; then
+            echo "solo $righe righe: sospetto, non aggiorno" >&2; exit 1
+          fi
+          for d in gmail.com outlook.com icloud.com proton.me libero.it yahoo.com; do
+            if grep -qx "$d" /tmp/blocklist.txt; then
+              echo "l'elenco contiene $d: falso positivo, non aggiorno" >&2; exit 1
+            fi
+          done
+          for d in mailinator.com 10minutemail.com; do
+            grep -qx "$d" /tmp/blocklist.txt || { echo "manca $d" >&2; exit 1; }
+          done
+
+      - name: Aggiorna se e' cambiato
+        run: |
+          if cmp -s /tmp/blocklist.txt api/app/data/disposable_domains.txt; then
+            echo "nessuna modifica"; exit 0
+          fi
+          cp /tmp/blocklist.txt api/app/data/disposable_domains.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api/app/data/disposable_domains.txt
+          git commit -m "Aggiorna l'elenco dei domini usa-e-getta
+
+          Rigenerato dall'azione settimanale: $(wc -l < api/app/data/disposable_domains.txt) domini."
+          git push

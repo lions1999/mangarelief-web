@@ -674,6 +674,120 @@ finally:
     auth.reset_cache()
     drena()
 
+# ----------------------------------------------------------- accesso via codice
+# Il codice invece del magic link: un link apre una scheda nuova e chi ha gia'
+# caricato l'immagine e regolato i parametri li perde. La richiesta passa dalla
+# nostra API perche' e' l'unico punto in cui possiamo rifiutare le caselle
+# usa-e-getta e ricondurre gli alias a una sola identita'.
+from app import emails as _mail  # noqa: E402
+
+check("normalizza gli alias Gmail sulla stessa casella",
+      _mail.normalize("M.ario+spam@GMail.com") == "mario@gmail.com"
+      == _mail.normalize("m.a.r.i.o@googlemail.com"),
+      _mail.normalize("M.ario+spam@GMail.com"))
+check("il +suffisso cade su tutti i domini, non solo Gmail",
+      _mail.normalize("Mario.Rossi+x@outlook.com") == "mario.rossi@outlook.com",
+      _mail.normalize("Mario.Rossi+x@outlook.com"))
+check("il punto resta significativo fuori da Gmail",
+      _mail.normalize("m.ario@outlook.com") == "m.ario@outlook.com")
+check("le temporanee note sono in elenco",
+      all(_mail.is_disposable(f"x@{d}") for d in
+          ("mailinator.com", "10minutemail.com", "guerrillamail.com", "yopmail.com")))
+check("i provider veri non sono in elenco",
+      not any(_mail.is_disposable(f"x@{d}") for d in
+              ("gmail.com", "outlook.com", "icloud.com", "proton.me", "libero.it")))
+check("l'elenco e' consistente", len(_mail.disposable_domains()) > 1000,
+      len(_mail.disposable_domains()))
+
+inviate = []
+
+
+def _finto_auth_post(path, payload, params=None):
+    inviate.append((path, payload, params))
+
+    class R:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            if path == "otp":
+                return {}
+            return {"access_token": "at-1", "refresh_token": "rt-1", "expires_at": 999,
+                    "user": {"id": "77777777-8888-9999-aaaa-bbbbbbbbbbbb",
+                             "email": payload.get("email")}}
+    if path == "verify" and payload.get("token") != "123456":
+        R.status_code = 403
+    return R()
+
+
+_auth_post_orig = auth._auth_post
+auth._auth_post = _finto_auth_post
+auth._sends.clear()
+try:
+    check("email non valida -> 422",
+          client.post("/api/auth/code", json={"email": "non-una-email"}).status_code == 422)
+    check("casella usa-e-getta rifiutata prima di spedire",
+          client.post("/api/auth/code", json={"email": "x@mailinator.com"}).status_code == 422
+          and not inviate)
+    r = client.post("/api/auth/code", json={"email": "M.ario+promo@GMail.com"})
+    check("codice richiesto -> 204", r.status_code == 204, r.status_code)
+    check("a Supabase arriva l'indirizzo normalizzato, non l'alias",
+          inviate[-1][1]["email"] == "mario@gmail.com", inviate[-1][1])
+
+    # Freno agli invii: il sito non deve diventare un mezzo per spedire email
+    # a indirizzi altrui.
+    esiti = [client.post("/api/auth/code", json={"email": f"tale{i}@esempio.it"}).status_code
+             for i in range(8)]
+    check("troppi codici dallo stesso IP -> 429", 429 in esiti, esiti)
+    auth._sends.clear()
+
+    check("codice sbagliato -> 401",
+          client.post("/api/auth/verify",
+                      json={"email": "mario@gmail.com", "code": "000000"}).status_code == 401)
+
+    # Le prove anonime di questo browser passano all'account nello stesso
+    # passaggio in cui si accede.
+    DEV_NUOVO = "cccccccc-1111-2222-3333-444444444444"
+    drena()
+    upload({"mode": "standard", "max_dim": 40, "max_res_cap": 200},
+           headers={"X-MangaRelief-Device": DEV_NUOVO})
+    drena()
+    r = client.post("/api/auth/verify", json={"email": "M.ario+promo@GMail.com",
+                                              "code": "123456", "device_id": DEV_NUOVO})
+    check("codice giusto -> sessione", r.status_code == 200, r.text[:120])
+    sess = r.json()
+    check("la sessione porta i token e l'utente",
+          sess["access_token"] == "at-1" and sess["refresh_token"] == "rt-1"
+          and sess["user_id"], sess)
+    check("accedendo, le prove anonime del browser passano all'account",
+          sess["linked"] >= 1, sess["linked"])
+    check("verify usa l'indirizzo normalizzato",
+          inviate[-1][1]["email"] == "mario@gmail.com", inviate[-1][1])
+    check("collegare di nuovo lo stesso browser non aggiunge nulla",
+          client.post("/api/auth/verify",
+                      json={"email": "mario@gmail.com", "code": "123456",
+                            "device_id": DEV_NUOVO}).json()["linked"] == 0)
+
+    r = client.post("/api/auth/refresh", json={"refresh_token": "rt-1"})
+    check("il refresh restituisce una sessione nuova",
+          r.status_code == 200 and r.json()["access_token"] == "at-1", r.status_code)
+
+    # L'elenco non e' un muro: la chiave anon e' pubblica, quindi un account
+    # con casella usa-e-getta puo' comunque nascere scavalcando il nostro
+    # endpoint. Rifiutarlo all'uso e' cio' che lo rende inutile.
+    auth.fetch_user = lambda t: {"id": "66666666-0000-0000-0000-000000000001",
+                                 "email": "furbo@mailinator.com"}
+    auth.reset_cache()
+    check("account con casella usa-e-getta: rifiutato all'uso, non solo all'iscrizione",
+          upload({"mode": "standard"},
+                 headers={"Authorization": "Bearer qualsiasi"}).status_code == 403)
+finally:
+    auth._auth_post = _auth_post_orig
+    auth.fetch_user = _vero_fetch
+    auth.reset_cache()
+    auth._sends.clear()
+    drena()
+
 # ------------------------------------------------------------------- CORS
 # Due righe nella tabella e una pagina che "non fa nulla" e' la firma di un
 # CORS che non combacia: il POST multipart non ha preflight, quindi arriva e

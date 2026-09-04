@@ -155,3 +155,30 @@ class AnalysisResult(BaseModel):
     suggested_color_changes_z: List[float]
     suggested_accents: List[RGB]
     bw_ink_level: int
+
+
+class CodeRequest(BaseModel):
+    """Richiesta del codice di accesso."""
+    email: str = Field(..., max_length=320)
+
+
+class VerifyRequest(BaseModel):
+    email: str = Field(..., max_length=320)
+    code: str = Field(..., min_length=4, max_length=12)
+    # Il browser da cui si sta accedendo: serve ad attribuire all'account le
+    # prove gia' fatte da anonimo.
+    device_id: Optional[str] = Field(None, max_length=64)
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., max_length=4096)
+
+
+class SessionOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    expires_at: Optional[int] = None
+    email: Optional[str] = None
+    user_id: str
+    # Quante generazioni anonime di questo browser sono passate all'account.
+    linked: int = 0
