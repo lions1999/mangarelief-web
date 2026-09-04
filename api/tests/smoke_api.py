@@ -1340,6 +1340,93 @@ check("delete: e cosi' il 400 con cui Supabase dice la stessa cosa", c_400 is Fa
 check("delete: un 400 diverso resta un errore, non diventa 'non c'era'",
       c_altro is not None, c_altro)
 
+# delete_prefix cancellava una pagina da cento e rispondeva 200: con piu'
+# oggetti gli altri restavano nel bucket senza un errore da nessuna parte.
+# Misurato sul bucket vero con 105 oggetti — ne cancellava 100, ne lasciava 5.
+_pagine = {"restanti": 0, "giri": 0, "cancellati": []}
+
+
+def _lista_finta(url, **kwargs):
+    _pagine["giri"] += 1
+    quanti = min(_pagine["restanti"], SupabaseStorage._PAGINA)
+    _pagine["restanti"] -= quanti
+
+    class R:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return [{"name": f"f{i}.bin"} for i in range(quanti)]
+
+    return R()
+
+
+def _delete_finta(metodo, url, **kwargs):
+    _pagine["cancellati"] += (kwargs.get("json") or {}).get("prefixes", [])
+
+    class R:
+        status_code = 200
+        text = ""
+
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    return R()
+
+
+real_post, real_req = httpx.post, httpx.request
+try:
+    httpx.post, httpx.request = _lista_finta, _delete_finta
+    _pagine["restanti"], _pagine["giri"], _pagine["cancellati"] = 105, 0, []
+    tolti = _bucket.delete_prefix("job-x")
+    giri_105 = _pagine["giri"]
+
+    _pagine["restanti"], _pagine["giri"], _pagine["cancellati"] = 3, 0, []
+    tolti_pochi = _bucket.delete_prefix("job-y")
+    giri_3 = _pagine["giri"]
+
+    _pagine["restanti"], _pagine["giri"] = 0, 0
+    tolti_zero = _bucket.delete_prefix("job-z")
+finally:
+    httpx.post, httpx.request = real_post, real_req
+
+check("delete_prefix: oltre una pagina continua invece di fermarsi a cento",
+      tolti == 105, tolti)
+check("delete_prefix: e ci arriva in piu' giri", giri_105 == 2, giri_105)
+check("delete_prefix: con pochi oggetti basta un giro solo",
+      tolti_pochi == 3 and giri_3 == 1, (tolti_pochi, giri_3))
+check("delete_prefix: su una cartella vuota non chiede altro", tolti_zero == 0, tolti_zero)
+
+# La scrittura dichiara la propria cache: il valore ereditato non era una
+# scelta, ed e' quello che faceva rileggere il contenuto vecchio.
+_intestazioni = {}
+
+
+def _post_che_ricorda(url, **kwargs):
+    _intestazioni.update(kwargs.get("headers") or {})
+
+    class R:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+    return R()
+
+
+real_post2, httpx.post = httpx.post, _post_che_ricorda
+try:
+    _bucket.put("k", b"x", "image/webp")
+finally:
+    httpx.post = real_post2
+
+check("put: la cache viene dichiarata, non ereditata",
+      _intestazioni.get("cache-control") == "no-store", _intestazioni.get("cache-control"))
+check("put: e continua a sostituire una chiave esistente",
+      _intestazioni.get("x-upsert") == "true", _intestazioni.get("x-upsert"))
+
 check("link_device: scrive l'account e riporta quante ne ha spostate",
       patched["json"] == {"user_id": "11111111-2222-3333-4444-555555555555"}
       and spostate == 1, (patched["json"], spostate))

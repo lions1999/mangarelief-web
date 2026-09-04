@@ -450,13 +450,22 @@ which is how the script itself is tested, and incidentally holds the two
 implementations to the same behaviour the way `contract_store.py` does for the
 database.
 
-The assumption worth measuring is inside `delete_prefix`: it lists the objects
-under a prefix and deletes them by name, assuming those names come back
-*relative* to the prefix. If they came back absolute it would delete paths that
-do not exist and **answer 200** — orphans that sit in the bucket forever with
-no error anywhere. With 1 GB of space and ~9 MB per generation, that is a leak
-you notice late. `--molti` additionally writes 105 objects, because the listing
-asks for `limit: 100`.
+The first run against the real bucket found two things, which is what it was
+for:
+
+- **`delete_prefix` left orphans.** The listing returns at most 100 names, and
+  the old code deleted that one page and answered 200 — with 105 objects it
+  removed 100 and left 5, silently. It now loops until a short page comes back.
+  Nothing was being lost in practice (a prefix holds two or three files), but
+  with 1 GB of space that is a leak you notice late.
+- **Reads come from a cache.** Overwrite a key and the listing shows the new
+  size while a read still returns the old bytes. Uploads now state
+  `cache-control: no-store` rather than inheriting a default nobody chose.
+  Nothing here is ever overwritten — every key comes from a unique id — but a
+  property you believe you have and do not is worse than one you know you lack.
+
+`--molti` writes 105 objects on purpose: that is the number that exposed the
+first one.
 
 ### Supabase
 

@@ -66,10 +66,25 @@ class SupabaseStorage:
         self.headers = {"apikey": key, "Authorization": f"Bearer {key}"}
 
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+        """Scrive un oggetto, sostituendolo se la chiave esiste gia'.
+
+        `cache-control` e' esplicito perche' il valore ereditato non era una
+        scelta: senza, Supabase serve le letture da una cache di un'ora, e
+        riscrivere una chiave lascia rileggere il contenuto vecchio. Misurato
+        sul bucket vero — dopo la sostituzione l'elenco riportava la dimensione
+        nuova mentre la lettura restituiva ancora quella vecchia.
+
+        Oggi non ci morderebbe (ogni chiave nasce da un identificativo unico e
+        non viene mai riscritta), ma una proprieta' che si crede di avere e non
+        si ha e' peggio di una che si sa di non avere. Cachare qui non ci fa
+        guadagnare niente: chi legge e' la nostra API, che sulle proprie
+        risposte mette le intestazioni che vuole.
+        """
         r = httpx.post(
             f"{self.base}/object/{self.bucket}/{key}",
             content=data,
-            headers={**self.headers, "Content-Type": content_type, "x-upsert": "true"},
+            headers={**self.headers, "Content-Type": content_type, "x-upsert": "true",
+                     "cache-control": "no-store"},
             timeout=120.0,
         )
         r.raise_for_status()
@@ -101,22 +116,51 @@ class SupabaseStorage:
         r.raise_for_status()
         return True
 
+    # L'elenco ne restituisce al massimo questi per volta: e' un limite del
+    # servizio, non una nostra preferenza.
+    _PAGINA = 100
+
     def delete_prefix(self, prefix: str) -> int:
-        listing = httpx.post(
-            f"{self.base}/object/list/{self.bucket}",
-            json={"prefix": prefix.rstrip("/") + "/", "limit": 100},
-            headers=self.headers, timeout=60.0,
-        )
-        listing.raise_for_status()
-        names = [f"{prefix.rstrip('/')}/{item['name']}" for item in listing.json()]
-        if not names:
-            return 0
-        r = httpx.request(
-            "DELETE", f"{self.base}/object/{self.bucket}",
-            json={"prefixes": names}, headers=self.headers, timeout=60.0,
-        )
-        r.raise_for_status()
-        return len(names)
+        """Cancella tutti gli oggetti sotto un prefisso, e riporta quanti.
+
+        A giri, non in uno solo. La versione precedente chiedeva una pagina da
+        cento e cancellava quella: con piu' di cento oggetti gli altri
+        restavano nel bucket **e la funzione rispondeva 200**, cioe' file
+        orfani senza un errore da nessuna parte. Misurato sul bucket vero con
+        105 oggetti: ne cancellava 100 e ne lasciava 5.
+
+        Oggi sotto un prefisso ce ne sono due o tre (uno STL, un 3MF, o la
+        coppia miniatura/sorgente), quindi non stava perdendo niente. Ma con
+        1 GB di spazio e 9 MB a generazione, una perdita silenziosa e' il
+        genere di cosa che ci si accorge tardi.
+
+        Non scende nelle sottocartelle: non ne abbiamo, e una cancellazione
+        ricorsiva scritta senza averne bisogno e' solo un modo piu' ampio di
+        sbagliare.
+        """
+        radice = prefix.rstrip("/")
+        totale = 0
+        # Un tetto ai giri: se il servizio continuasse a riportare gli stessi
+        # nomi, meglio uscire che restare in cerchio per sempre.
+        for _ in range(1000):
+            listing = httpx.post(
+                f"{self.base}/object/list/{self.bucket}",
+                json={"prefix": radice + "/", "limit": self._PAGINA},
+                headers=self.headers, timeout=60.0,
+            )
+            listing.raise_for_status()
+            names = [f"{radice}/{item['name']}" for item in listing.json()]
+            if not names:
+                break
+            r = httpx.request(
+                "DELETE", f"{self.base}/object/{self.bucket}",
+                json={"prefixes": names}, headers=self.headers, timeout=60.0,
+            )
+            r.raise_for_status()
+            totale += len(names)
+            if len(names) < self._PAGINA:
+                break
+        return totale
 
 
 _storage: Optional[object] = None
