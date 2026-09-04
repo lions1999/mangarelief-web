@@ -4,8 +4,10 @@ Turns 2D artwork into terraced, 3D-printable meshes (STL + Bambu Studio 3MF)
 over HTTP. This is the web half of **MangaRelief**; the desktop application and
 the generation engine live in [MangaRelief](https://github.com/lions1999/MangaRelief).
 
-**Live:** [mangarelief-web.pages.dev](https://mangarelief-web.pages.dev) —
-frontend on Cloudflare Pages, API on Cloud Run, storage and database on Supabase.
+**Live:** [mangarelief.com](https://mangarelief.com) — frontend on Cloudflare
+Pages, API on Cloud Run, storage and database on Supabase. The original
+`mangarelief-web.pages.dev` still answers, and stays in `CORS_ORIGINS` so that
+per-branch preview builds keep working.
 
 > **Status: phase 2 complete.** Anyone can open the site, upload artwork, watch
 > the model appear and download it. Accounts, quota and payments are still ahead.
@@ -278,7 +280,7 @@ Everything is an env var, so the same image runs locally and in production.
 | `SUPABASE_SERVICE_KEY` | Cloud Run | Service-role key: bypasses row level security. Server-side only, never in a browser |
 | `SUPABASE_BUCKET` | Cloud Run | Bucket for the produced files. Default `generations` |
 | `SUPABASE_ANON_KEY` | Cloud Run | Public key, used only for the sign-in endpoints. Falls back to the service key when unset — it works, but it is more powerful than the job needs |
-| `CORS_ORIGINS` | Cloud Run | Comma-separated origins allowed to call the API. A trailing slash used to break every call; it is stripped on read now |
+| `CORS_ORIGINS` | Cloud Run | Comma-separated origins allowed to call the API — in production `https://mangarelief.com,https://www.mangarelief.com,https://mangarelief-web.pages.dev`. Set it *before* pointing a new domain at the site, or the first visitor on it gets a page that silently does nothing. A trailing slash used to break every call; it is stripped on read now |
 | `CLEANUP_TOKEN` | Cloud Run **and** GitHub | Shared secret for the cleanup endpoint. Must match on both sides; empty gives `503`, wrong gives `401` |
 | `IP_HASH_SALT` | Cloud Run | Salt for the stored IP hashes. **Leaving it unset keeps the public default from the source, which makes those hashes reversible by anyone** |
 | `API_URL` | GitHub secret | Where the nightly cleanup job posts |
