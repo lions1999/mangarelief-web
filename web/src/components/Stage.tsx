@@ -12,13 +12,15 @@ import PickableImage from "./PickableImage";
 import ProgressBar from "./ProgressBar";
 import { useMockup } from "../hooks/useMockup";
 import { downloadUrl, previewUrl } from "../api";
-import type { Analysis, JobParams, JobView, RGB } from "../types";
+import type { Analysis, JobParams, JobView, Limits, RGB } from "../types";
 
 // three.js is ~600 kB of the bundle and is useless until a model exists, so it
 // is fetched the first time a generation finishes, not on page load.
 const ModelViewer = lazy(() => import("./ModelViewer"));
 
-export type StageView = "art" | "model";
+/** "history" la disegna App, non lo stage: e' l'unica vista che non parla di
+ *  un'immagine caricata. Sta nell'unione perche' e' lo stesso selettore. */
+export type StageView = "art" | "model" | "history";
 
 interface Props {
   file: File | null;
@@ -29,8 +31,8 @@ interface Props {
   disabled: boolean;
   onView: (view: StageView) => void;
   onFile: (file: File) => void;
-  /** Il tetto di caricamento del server, in MB; nullo finche' non si sa. */
-  maxMb: number | null;
+  /** Le regole del servizio: i numeri che il testo qui dentro cita. */
+  limits: Limits | null;
   onPick: (colour: RGB) => void;
   /** Live: share of the artwork near the two-colour cut, from the preview call. */
   onAmbiguity: (value: number | null) => void;
@@ -45,8 +47,9 @@ function expiryLabel(iso: string | null): string {
 }
 
 export default function Stage({
-  file, params, analysis, job, view, disabled, onView, onFile, maxMb, onPick, onAmbiguity,
+  file, params, analysis, job, view, disabled, onView, onFile, limits, onPick, onAmbiguity,
 }: Props) {
+  const maxMb = limits?.max_upload_mb ?? null;
   const spot = params.mode === "spot_color";
   const twoColours = (params.color_mode ?? analysis?.color_mode) === 2;
   const tones = params.sampled_values ?? analysis?.suggested_sampled_values;
@@ -85,7 +88,10 @@ export default function Stage({
   const running = job?.status === "queued" || job?.status === "running";
   const done = job?.status === "done";
 
-  if (!file) {
+  // Senza immagine c'e' ancora qualcosa da mostrare, se si e' aperto un
+  // modello dalla cronologia: e' il gesto «rivedo quello di ieri», e non
+  // richiede di ricaricare la tavola.
+  if (!file && !job) {
     return (
       <div className="stage">
         <div className="stage-empty">
@@ -93,7 +99,7 @@ export default function Stage({
           <p className="hint">
             A manga panel, a logo, a line drawing — anything with clear tonal
             areas. Nothing is generated until you ask for it, and results are
-            deleted within 48 hours.
+            deleted{limits ? ` within ${limits.retention_h} hours` : " on a schedule"}.
           </p>
         </div>
       </div>
@@ -107,6 +113,7 @@ export default function Stage({
           <button
             type="button"
             className={`tab${view === "art" ? " active" : ""}`}
+            disabled={!file}
             onClick={() => onView("art")}
           >
             Artwork
@@ -133,7 +140,9 @@ export default function Stage({
         </span>
       </div>
 
-      {view === "art" && (
+      {/* `file` puo' mancare: si arriva qui anche aprendo un modello dalla
+          cronologia, e in quel caso la scheda Artwork e' spenta. */}
+      {view === "art" && file && (
         <div className="stage-art">
           <figure>
             <div className="frame">
@@ -220,8 +229,9 @@ export default function Stage({
               )}
 
               <p className="hint">
-                Files are deleted in {expiryLabel(job.expires_at)}, and 24 hours
-                after your first download — save them somewhere.
+                Files are deleted in {expiryLabel(job.expires_at)}
+                {limits && `, and ${limits.post_download_h} hours after your
+                first download`} — save them somewhere.
               </p>
             </aside>
           )}

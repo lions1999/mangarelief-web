@@ -13,6 +13,7 @@ import Dropzone from "./components/Dropzone";
 import LookPanel from "./components/LookPanel";
 import PrintPanel from "./components/PrintPanel";
 import SpotPanel from "./components/SpotPanel";
+import History from "./components/History";
 import Stage, { type StageView } from "./components/Stage";
 import TonesPanel from "./components/TonesPanel";
 import AccountBar from "./components/AccountBar";
@@ -22,9 +23,9 @@ import Turnstile, { turnstileEnabled } from "./components/Turnstile";
 import { plural, windowLabel } from "./copy";
 import { useAccents } from "./hooks/useAccents";
 import { useTones } from "./hooks/useTones";
-import { ApiError, analyze, createJob, getJob, getLimits, getQuota } from "./api";
+import { ApiError, analyze, createJob, getJob, getLimits, getQuota, regenerate } from "./api";
 import { getSession, markWelcomeSeen, setSession, welcomeSeen, type Session } from "./session";
-import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type Limits, type Quota, type RGB } from "./types";
+import { DEFAULT_PARAMS, type Analysis, type HistoryEntry, type JobParams, type JobView, type Limits, type Quota, type RGB } from "./types";
 
 const POLL_MS = 1200;
 
@@ -46,6 +47,9 @@ export default function App() {
   // Deciso una volta all'avvio: legato allo stato vivo, il benvenuto
   // riapparirebbe da solo appena qualcuno esce dall'account.
   const [welcome, setWelcome] = useState(() => !welcomeSeen() && !getSession());
+  // Cambia a ogni generazione riuscita: e' il segnale che la cronologia ha una
+  // voce in piu' da mostrare la prossima volta che si apre.
+  const [historyKey, setHistoryKey] = useState(0);
   const [linkedNote, setLinkedNote] = useState("");
 
   const poll = useRef<number | undefined>(undefined);
@@ -130,6 +134,7 @@ export default function App() {
       setBusy(false);
       if (job.status === "error") setError(job.error ?? "generation failed");
       refreshQuota();
+      if (job.status === "done") setHistoryKey((n) => n + 1);
     }
   }, [job, refreshQuota]);
 
@@ -149,6 +154,32 @@ export default function App() {
       setError(err instanceof Error ? err.message : "could not start the generation");
       setBusy(false);
       setView("art");
+    }
+  };
+
+  /** Rivedere un modello di ieri: nessuna immagine da ricaricare, si apre. */
+  const openPast = async (entry: HistoryEntry) => {
+    reset();
+    try {
+      setJob(await getJob(entry.id));
+      setView("model");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "could not open that one");
+    }
+  };
+
+  /** Rifarla costa una generazione della giornata, come farla la prima volta. */
+  const redo = async (entry: HistoryEntry) => {
+    reset();
+    setBusy(true);
+    setView("model");
+    try {
+      const { job_id } = await regenerate(entry.id);
+      setJob(await getJob(job_id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "could not redo that one");
+      setBusy(false);
+      setView("history");
     }
   };
 
@@ -184,7 +215,12 @@ export default function App() {
             session={session}
             quota={quota}
             onSignIn={() => setSigningIn(true)}
-            onSignOut={() => { setSession(null); setSessionState(null); }}
+            onSignOut={() => {
+              setSession(null);
+              setSessionState(null);
+              if (view === "history") setView(file ? "art" : "art");
+            }}
+            onHistory={() => setView("history")}
           />
         </div>
 
@@ -258,19 +294,29 @@ export default function App() {
       </aside>
 
       <main ref={stage} className="main">
-        <Stage
-          file={file}
-          params={params}
-          analysis={analysis}
-          job={job}
-          view={view}
-          disabled={busy}
-          onView={setView}
-          onFile={onFile}
-          maxMb={maxMb}
-          onPick={onPick}
-          onAmbiguity={setAmbiguous}
-        />
+        {view === "history" ? (
+          <History
+            reloadKey={historyKey}
+            busy={busy}
+            onOpen={openPast}
+            onRegenerate={redo}
+            onClose={() => setView(job ? "model" : "art")}
+          />
+        ) : (
+          <Stage
+            file={file}
+            params={params}
+            analysis={analysis}
+            job={job}
+            view={view}
+            disabled={busy}
+            onView={setView}
+            onFile={onFile}
+            limits={limits}
+            onPick={onPick}
+            onAmbiguity={setAmbiguous}
+          />
+        )}
       </main>
     </div>
   );

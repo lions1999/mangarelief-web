@@ -18,6 +18,7 @@ interface Props {
   quota: Quota | null;
   onSignIn: () => void;
   onSignOut: () => void;
+  onHistory: () => void;
 }
 
 function whenFree(reset: string | null): string {
@@ -28,7 +29,7 @@ function whenFree(reset: string | null): string {
   return `in ${Math.round(h)} h`;
 }
 
-export default function AccountBar({ session, quota, onSignIn, onSignOut }: Props) {
+export default function AccountBar({ session, quota, onSignIn, onSignOut, onHistory }: Props) {
   const unlimited = quota?.limit == null;
   const out = quota && !unlimited ? (quota.remaining ?? 0) <= 0 : false;
 
@@ -52,6 +53,13 @@ export default function AccountBar({ session, quota, onSignIn, onSignOut }: Prop
       <div className="account-row">
         {session?.email && (
           <span className="account-who" title={session.email}>{session.email}</span>
+        )}
+        {/* La cronologia esiste solo con un account: senza, il collegamento
+            porterebbe a una schermata che dice soltanto di accedere. */}
+        {session && (
+          <button type="button" className="link" onClick={onHistory}>
+            your generations
+          </button>
         )}
         <button type="button" className="link"
                 onClick={session ? onSignOut : onSignIn}>

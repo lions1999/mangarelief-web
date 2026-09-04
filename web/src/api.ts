@@ -6,7 +6,7 @@
  * the UI should have to change when it does.
  */
 import { deviceId, expiringSoon, getSession, setSession, type Session } from "./session";
-import type { Analysis, JobParams, JobView, Limits, Quota } from "./types";
+import type { Analysis, HistoryList, JobParams, JobView, Limits, Quota } from "./types";
 
 const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -80,6 +80,28 @@ export async function refreshSession(refresh_token: string): Promise<Session> {
     body: JSON.stringify({ refresh_token }),
   });
   return res.ok ? res.json() : failure(res);
+}
+
+export async function getHistory(): Promise<HistoryList> {
+  const res = await fetch(`${BASE}/api/history`, { headers: await authHeaders() });
+  return res.ok ? res.json() : failure(res);
+}
+
+/** Rifa' una generazione scaduta. Costa una generazione della giornata. */
+export async function regenerate(id: string): Promise<{ job_id: string }> {
+  const res = await fetch(`${BASE}/api/history/${id}/regenerate`, {
+    method: "POST",
+    headers: await authHeaders(),
+  });
+  return res.ok ? res.json() : failure(res);
+}
+
+export async function forget(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/history/${id}`, {
+    method: "DELETE",
+    headers: await authHeaders(),
+  });
+  if (!res.ok) return failure(res);
 }
 
 export async function getLimits(): Promise<Limits> {

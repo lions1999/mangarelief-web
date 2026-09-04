@@ -62,9 +62,10 @@ export default function Welcome({ limits, onStart, onSignIn }: Props) {
         <div className="welcome-facts">
           <p>
             <strong>{plural(limits.anon_generations, "generation")} {windowLabel(limits.window_h)}</strong>{" "}
-            without an account, {limits.user_generations} once you sign in — and
-            what you use now counts on your account afterwards, so signing in
-            brings you to {limits.user_generations} in total, not{" "}
+            without an account, {limits.user_generations} once you sign in,
+            which also keeps a history of what you made. What you use now counts
+            on your account afterwards, so signing in brings you to{" "}
+            {limits.user_generations} in total, not{" "}
             {limits.anon_generations + limits.user_generations}.
           </p>
           <p>

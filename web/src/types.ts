@@ -76,6 +76,28 @@ export const DEFAULT_PARAMS: JobParams = {
 };
 
 
+/** Una generazione passata: quello che ne resta quando i file sono scaduti. */
+export interface HistoryEntry {
+  id: string;
+  created_at: string;
+  image_name: string | null;
+  mode: Mode;
+  color_mode: number | null;
+  status: "queued" | "running" | "done" | "error" | "expired";
+  /** Solo finche' i file ci sono. */
+  expires_at: string | null;
+  preview_url: string | null;
+  /** Falso quando la sorgente e' stata potata: la voce resta, il clic no. */
+  can_regenerate: boolean;
+  artifacts: Artifact[];
+}
+
+export interface HistoryList {
+  entries: HistoryEntry[];
+  /** Quante generazioni per account conservano la sorgente. */
+  keep_sources: number;
+}
+
 /**
  * Le regole del servizio, servite dal server perche' non le riscriva il testo.
  * Sono uguali per tutti: quanto ti resta *a te* sta in `Quota`.
