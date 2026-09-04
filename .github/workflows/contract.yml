@@ -1,0 +1,97 @@
+# Il contratto dell'archivio contro un PostgREST vero.
+#
+# La suite principale gira su SQLite, cioe' sull'unica delle due
+# implementazioni che il sito non usa. Qui le stesse asserzioni girano contro
+# il software che serve davvero le nostre query, su un Postgres su cui sono
+# state applicate le migrazioni vere — non modificate, le stesse che finiscono
+# in produzione.
+#
+# Non e' Supabase: restano fuori GoTrue, lo Storage e le policy come sono
+# configurate nel progetto. E' PostgREST sopra Postgres, che e' la parte da cui
+# passano tutte le query di questo codice.
+name: contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  postgrest:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGPASSWORD: postgres
+      PSQL: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -q
+      # Solo per questo job: PostgREST lo vuole lungo almeno 32 caratteri, e
+      # non protegge niente che esista fuori da questa macchina effimera.
+      PGRST_JWT_SECRET: contract-test-secret-not-a-real-one-0123456789
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install httpx
+
+      # Le migrazioni applicate da zero, in ordine. Vale gia' da solo: prima
+      # di questo job nessuno le eseguiva mai su un database vuoto — venivano
+      # incollate a mano nella dashboard, e un errore di sintassi si scopriva
+      # li'.
+      - name: Apply the schema
+        run: |
+          $PSQL -c 'create database mrtest'
+          $PSQL -d mrtest -f supabase/testing/00_bootstrap.sql
+          for f in supabase/migrations/*.sql; do
+            echo "-- $f"
+            $PSQL -d mrtest -f "$f"
+          done
+          $PSQL -d mrtest -f supabase/testing/99_grants.sql
+
+      # Le migrazioni sono idempotenti perche' vengono incollate a mano, e chi
+      # le incolla due volte non deve rompere niente. Applicarle di nuovo qui
+      # e' il modo per accorgersene se smettessero di esserlo.
+      - name: Apply the schema a second time (they must be idempotent)
+        run: |
+          for f in supabase/migrations/*.sql; do $PSQL -d mrtest -f "$f"; done
+
+      # Versione fissata, mai "latest": una prova che cambia software da sola
+      # smette di dire cosa e' cambiato quando fallisce. Va tenuta vicina a
+      # quella che gira su Supabase — se un giorno divergono di molto, questo
+      # job misura un PostgREST che il sito non usa.
+      - name: Start PostgREST
+        run: |
+          docker run -d --name pgrst --network host \
+            -e PGRST_DB_URI="postgres://authenticator:authenticator@localhost:5432/mrtest" \
+            -e PGRST_DB_SCHEMAS=public \
+            -e PGRST_DB_ANON_ROLE=anon \
+            -e PGRST_JWT_SECRET="$PGRST_JWT_SECRET" \
+            -e PGRST_SERVER_PORT=3000 \
+            postgrest/postgrest:v12.2.12
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000/ >/dev/null && break
+            sleep 2
+          done
+
+      - name: Run the store contract
+        env:
+          SUPABASE_TEST_URL: http://localhost:3000
+        run: python api/tests/contract_supabase.py
+
+      - name: PostgREST logs (on failure)
+        if: failure()
+        run: docker logs pgrst

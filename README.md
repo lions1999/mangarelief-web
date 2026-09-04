@@ -401,6 +401,32 @@ Two rules for anything added there:
   instant is undefined in Postgres while SQLite follows the rowid — a test
   leaning on that passes here and is a coin toss there.
 
+`.github/workflows/contract.yml` runs that same list against a **real
+PostgREST** — the software Supabase puts in front of Postgres, and the one
+every query in this code actually talks to. The job applies
+`supabase/migrations/*.sql` from empty, in order, unmodified, then points
+`SupabaseStore` at it.
+
+Two things fall out of it for free, and either would justify the job alone:
+
+- **The migrations get executed by someone before you do.** Until this existed
+  nobody ever ran them on an empty database — they were pasted into the
+  dashboard by hand, so a syntax error was found in production. The job also
+  applies them twice, because they are meant to be idempotent for exactly that
+  reason.
+- **`COLUMNS` and the real table get compared**, since an insert naming a
+  column that is not there fails immediately.
+
+`supabase/testing/00_bootstrap.sql` supplies the parts of Supabase a bare
+Postgres lacks: the `auth` and `storage` schemas the migrations reference, and
+the `authenticator` / `service_role` / `anon` roles PostgREST connects through.
+The migrations themselves are never adapted — an adapted copy would be proving
+something other than what production runs.
+
+**What a green run does not say.** GoTrue, Storage and the project's own RLS
+policies are not here. It is PostgREST over Postgres, not Supabase: the job
+says our queries are right, not that the platform is.
+
 ### Supabase
 
 The schema lives in `supabase/migrations/` — the layout the Supabase GitHub

@@ -227,8 +227,13 @@ class SupabaseStore:
     which is exactly how the nightly cleanup first failed in production.
     """
 
-    def __init__(self, url: str, key: str):
-        self.base = f"{url}/rest/v1/generations"
+    def __init__(self, url: str, key: str, rest_path: str = "/rest/v1"):
+        # `rest_path` esiste per una ragione sola: la prova di contratto gira
+        # contro un PostgREST nudo, che serve le tabelle alla radice, mentre su
+        # Supabase lo stesso PostgREST sta dietro un gateway che lo espone
+        # sotto /rest/v1. Il prefisso e' l'unica cosa che cambia fra i due, e
+        # non e' PostgREST: e' la strada per arrivarci.
+        self.base = f"{url}{rest_path}/generations"
         self.headers = {
             "apikey": key,
             "Authorization": f"Bearer {key}",
