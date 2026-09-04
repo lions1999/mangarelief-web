@@ -362,10 +362,10 @@ def auth_code(body: CodeRequest, request: Request):
     raw = (body.email or "").strip()
     if not emails.is_valid(raw):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "indirizzo email non valido")
+                            "that is not a valid email address")
     if emails.is_disposable(raw):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
-                            "gli indirizzi temporanei non sono accettati, usane uno permanente")
+                            "disposable addresses are not accepted, use a permanent one")
     auth_mod.send_code(emails.normalize(raw), hash_ip(client_ip(request)))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -410,7 +410,7 @@ def auth_refresh(body: RefreshRequest):
     sess = auth_mod.refresh_session(body.refresh_token)
     user = sess.get("user") or {}
     if not user.get("id") or not sess.get("access_token"):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sessione scaduta, accedi di nuovo")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "your session expired, sign in again")
     return SessionOut(access_token=sess["access_token"],
                       refresh_token=sess.get("refresh_token", ""),
                       expires_at=sess.get("expires_at"),

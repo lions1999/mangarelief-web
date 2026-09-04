@@ -89,7 +89,7 @@ def _reject_disposable(user: Optional[Dict[str, Any]]) -> None:
     """
     if user and user.get("email") and is_disposable(user["email"]):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "questo indirizzo email non e' accettato, usane uno permanente")
+                            "this email address is not accepted, use a permanent one")
 
 
 def verify(token: str) -> Optional[Dict[str, Any]]:
@@ -196,13 +196,13 @@ def send_code(email: str, ip_hash: str) -> None:
     gia' registrato: sarebbe un modo per scoprire chi ha un account qui."""
     if _too_many_sends(ip_hash):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
-                            "troppi codici richiesti, riprova fra qualche minuto")
+                            "too many codes requested, try again in a few minutes")
     r = _auth_post("otp", {"email": email, "create_user": True})
     if r.status_code >= 400:
         # 429 di Supabase = invii troppo ravvicinati allo stesso indirizzo.
         if r.status_code == 429:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
-                                "un codice e' gia' stato inviato da poco, controlla la posta")
+                                "a code was sent moments ago, check your inbox")
         raise HTTPException(status.HTTP_502_BAD_GATEWAY,
                             "the sign-in service refused the request")
 
@@ -212,7 +212,7 @@ def verify_code(email: str, code: str) -> Dict[str, Any]:
     r = _auth_post("verify", {"type": "email", "email": email, "token": code})
     if r.status_code >= 400:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED,
-                            "codice non valido o scaduto")
+                            "that code is not valid, or it has expired")
     return r.json()
 
 
@@ -220,5 +220,5 @@ def refresh_session(refresh_token: str) -> Dict[str, Any]:
     r = _auth_post("token", {"refresh_token": refresh_token},
                    params={"grant_type": "refresh_token"})
     if r.status_code >= 400:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "sessione scaduta, accedi di nuovo")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "your session expired, sign in again")
     return r.json()

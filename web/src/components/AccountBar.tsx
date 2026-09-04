@@ -1,14 +1,14 @@
 /**
- * Chi sei e quante generazioni ti restano, in una riga sotto il titolo.
+ * Who you are and how many generations are left, on one line under the title.
  *
- * Una riga e non un pannello: il primo posto della barra laterale spetta al
- * caricamento dell'immagine, che e' cio' per cui si e' arrivati qui. Ma il
- * contatore deve restare sempre in vista — scoprire di non avere piu'
- * generazioni *dopo* aver caricato un'immagine e regolato tutto e' il modo
- * peggiore di saperlo — quindi sta in alto, compatto, senza rubare la scena.
+ * A line and not a panel: the first slot in the sidebar belongs to loading the
+ * artwork, which is what anyone came here for. But the counter has to stay in
+ * sight — finding out you have no generations left *after* loading an image
+ * and tuning everything is the worst way to learn it — so it sits at the top,
+ * compact, without stealing the scene.
  *
- * La spiegazione lunga di cosa comporta non avere un account sta nel messaggio
- * di benvenuto, non qui: ripeterla a ogni sguardo e' rumore.
+ * The long explanation of what going without an account costs belongs in the
+ * welcome message, not here: repeating it at every glance is noise.
  */
 import type { Quota } from "../types";
 import type { Session } from "../session";
@@ -23,9 +23,9 @@ interface Props {
 function whenFree(reset: string | null): string {
   if (!reset) return "";
   const h = (new Date(reset).getTime() - Date.now()) / 3_600_000;
-  if (h <= 0) return "a momenti";
-  if (h < 1) return `fra ${Math.max(1, Math.round(h * 60))} min`;
-  return `fra ${Math.round(h)} ore`;
+  if (h <= 0) return "shortly";
+  if (h < 1) return `in ${Math.max(1, Math.round(h * 60))} min`;
+  return `in ${Math.round(h)} h`;
 }
 
 export default function AccountBar({ session, quota, onSignIn, onSignOut }: Props) {
@@ -37,11 +37,11 @@ export default function AccountBar({ session, quota, onSignIn, onSignOut }: Prop
       <span className={`quota${out ? " out" : ""}`}>
         {quota ? (
           senzaTetto ? (
-            <>generazioni <strong>illimitate</strong></>
+            <><strong>unlimited</strong> generations</>
           ) : (
             <>
-              <strong>{quota.remaining}</strong> di {quota.limit} generazioni
-              {out && quota.reset_at && <em>una si libera {whenFree(quota.reset_at)}</em>}
+              <strong>{quota.remaining}</strong> of {quota.limit} generations
+              {out && quota.reset_at && <em>one frees up {whenFree(quota.reset_at)}</em>}
             </>
           )
         ) : (
@@ -51,10 +51,10 @@ export default function AccountBar({ session, quota, onSignIn, onSignOut }: Prop
       {session ? (
         <span className="account-who" title={session.email ?? ""}>
           {session.email}
-          <button type="button" className="link" onClick={onSignOut}>esci</button>
+          <button type="button" className="link" onClick={onSignOut}>sign out</button>
         </span>
       ) : (
-        <button type="button" className="link" onClick={onSignIn}>accedi</button>
+        <button type="button" className="link" onClick={onSignIn}>sign in</button>
       )}
     </div>
   );

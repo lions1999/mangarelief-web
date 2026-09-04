@@ -118,8 +118,8 @@ def enforce(store, user: Optional[dict], device_id: Optional[str],
     if q.remaining <= 0:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            (f"hai usato tutte e {q.limit} le generazioni del piano "
-             f"{'con account' if user else 'senza account'}"),
+            (f"you have used all {q.limit} generations "
+             f"{'on your account' if user else 'available without an account'}"),
             headers={"X-MangaRelief-Reset-At": q.reset_at or ""})
 
     # Seconda rete, solo per gli anonimi: chi svuota il browser per rifarsi le
@@ -131,6 +131,6 @@ def enforce(store, user: Optional[dict], device_id: Optional[str],
         if ip_used >= settings.quota_anon_ip_daily:
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
-                "troppe generazioni senza account da questa rete: accedi per continuare",
+                "too many account-less generations from this network: sign in to continue",
                 headers={"X-MangaRelief-Reset-At": _reset_at(ip_oldest) or ""})
     return q

@@ -133,8 +133,8 @@ export default function App() {
             // Detto subito: scoprire dopo che le prove erano state scalate
             // sembrerebbe un raggiro, anche se era scritto nel benvenuto.
             if (linked > 0) {
-              setLinkedNote(`Le ${linked} generazioni già fatte da questo browser `
-                + "sono state contate sul tuo account.");
+              setLinkedNote(`The ${linked} generation${linked === 1 ? "" : "s"} `
+                + "already made from this browser now count on your account.");
             }
           }}
         />
@@ -214,8 +214,8 @@ export default function App() {
                 ogni cambio di piano, e prima diceva "5 per hour" quando erano
                 gia' diventate 2 al giorno. */}
             Draft resolution · {quota ? (quota.limit == null
-              ? "generazioni illimitate"
-              : `${quota.limit} generazioni ogni 24 ore`) : " "}
+              ? "unlimited generations"
+              : `${quota.limit} generations per 24h`) : " "}
           </p>
         </div>
       </aside>
