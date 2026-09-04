@@ -164,6 +164,22 @@ class SqliteStore:
             )
             return int(cur.rowcount or 0)
 
+    def schema_problem(self) -> Optional[str]:
+        """None se la tabella ha tutte le colonne che il codice scrive, il
+        motivo altrimenti.
+
+        Le colonne stanno scritte in tre posti che devono coincidere e che
+        nessuno confrontava: `COLUMNS` qui, la CREATE TABLE di SQLite, e le
+        migrazioni di Supabase. Il giorno in cui divergono, la prima cosa che
+        succede non e' che smette di funzionare una novita': smette di
+        funzionare *ogni* generazione, perche' l'insert le nomina tutte. Questo
+        e' il confronto che mancava.
+        """
+        with self._connect() as con:
+            presenti = {r["name"] for r in con.execute("PRAGMA table_info(generations)")}
+        mancanti = [c for c in COLUMNS if c not in presenti]
+        return ("missing column(s): " + ", ".join(mancanti)) if mancanti else None
+
     def history(self, user_id: str, limit: int = 60) -> List[Dict[str, Any]]:
         """Le generazioni di un account, dalla piu' recente. Le nascoste no:
         chi ha svuotato una voce non deve rivedersela."""
@@ -263,6 +279,24 @@ class SupabaseStore:
             headers={**self.headers, "Prefer": "return=representation"}, timeout=30.0)
         r.raise_for_status()
         return len(r.json() or [])
+
+    def schema_problem(self) -> Optional[str]:
+        """Come sopra, chiedendo a PostgREST proprio le colonne che servono.
+
+        `select=<tutte>&limit=0` non porta indietro nessuna riga e non costa
+        niente, ma se una colonna manca PostgREST risponde 400 nominandola
+        (PGRST204). E' l'unico modo per farsi dire cosa c'e' davvero nella
+        tabella senza un secondo canale verso il database: information_schema
+        non e' esposto, e il codice non deve avere un altro modo di entrare.
+        """
+        try:
+            r = httpx.get(self.base, params={"select": ",".join(COLUMNS), "limit": "0"},
+                          headers=self.headers, timeout=15.0)
+        except Exception as exc:  # noqa: BLE001
+            return f"could not be verified: {type(exc).__name__}: {exc}"[:300]
+        if r.status_code == 200:
+            return None
+        return f"{r.status_code} {r.text[:300]}"
 
     def history(self, user_id: str, limit: int = 60) -> List[Dict[str, Any]]:
         r = httpx.get(

@@ -352,6 +352,24 @@ Everything is an env var, so the same image runs locally and in production.
 `"backend":"local"`. If a deploy that should be talking to Supabase says
 `local`, its credentials are missing.
 
+`/healthz?deep=true` goes further and answers the question a live service
+cannot otherwise be asked: **does the table have the columns this code
+writes?** It asks PostgREST for exactly the columns in `store.COLUMNS` with
+`limit=0`, and reports the answer as `"schema":"ok"` or, degraded, the column
+PostgREST says is missing.
+
+That check exists because of a real outage. A migration adds a column, the code
+starts writing it, and the insert names *every* column — so a pending migration
+does not break the new feature, it breaks **every generation**, including
+anonymous ones that have nothing to do with it. With deploy-from-repository the
+push and the migration are separate events, and until this endpoint could say
+so the only symptom was `502 could not record the job`.
+
+**So the order is: apply the migration first, push second.** The migrations are
+additive and idempotent, so applying one before its code ships is always safe;
+the reverse is not. `scripts/deploy_cloudrun.sh` now reads this endpoint after
+deploying and fails loudly rather than printing a URL that looks fine.
+
 ### Supabase
 
 The schema lives in `supabase/migrations/` — the layout the Supabase GitHub

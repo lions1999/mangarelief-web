@@ -32,9 +32,30 @@ gcloud run deploy "$SERVICE" \
   --port 8080
 
 echo
-echo "Service URL:"
-gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
-  --format 'value(status.url)'
+URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
+       --format 'value(status.url)')"
+echo "Service URL: $URL"
+echo
+
+# Un deploy che risponde non e' un deploy che funziona: se il database non ha
+# le colonne che questo codice scrive, l'insert viene rifiutato e *ogni*
+# generazione fallisce, novita' o meno. E' successo davvero — fra un push e la
+# migrazione applicata dopo — e da fuori sembrava che il sito fosse rotto senza
+# motivo. Qui si vede in due secondi, prima di chiudere il terminale.
+echo "Checking the deploy (database + schema)..."
+HEALTH="$(curl -fsS --max-time 30 "$URL/healthz?deep=true" || true)"
+echo "$HEALTH"
+case "$HEALTH" in
+  *'"status":"ok"'*)
+    echo "OK." ;;
+  *)
+    echo
+    echo "!! The service is up but not healthy."
+    echo "!! If it names a missing column, apply the pending files in"
+    echo "!! supabase/migrations/ from the Supabase SQL editor, then reload this URL."
+    echo "!! Nothing else needs redeploying: the schema is read at every request."
+    exit 1 ;;
+esac
 echo
 echo "Remember to set the environment variables (once, or in the console):"
 echo "  gcloud run services update $SERVICE --project $PROJECT --region $REGION \\"

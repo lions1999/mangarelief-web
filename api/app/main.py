@@ -231,6 +231,22 @@ def healthz(deep: bool = False):
         except Exception as exc:  # noqa: BLE001 - surfacing the reason is the point
             body["status"] = "degraded"
             body["database"] = _describe(exc)
+            return body
+
+        # Che il database risponda non vuol dire che abbia le colonne che
+        # questo codice scrive. Una migrazione non applicata non rompe una
+        # novita': rompe *ogni* generazione, perche' l'insert nomina tutte le
+        # colonne — ed e' successo davvero, fra un push e la migrazione fatta
+        # dopo. Qui si vede da un link invece che da chi carica un'immagine.
+        try:
+            problema = get_store().schema_problem()
+        except Exception as exc:  # noqa: BLE001
+            problema = _describe(exc)
+        if problema:
+            body["status"] = "degraded"
+            body["schema"] = f"{problema} — apply the pending migration in supabase/migrations"
+        else:
+            body["schema"] = "ok"
     return body
 
 

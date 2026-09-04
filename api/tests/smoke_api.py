@@ -92,6 +92,30 @@ r = client.get("/healthz?deep=true")
 check("healthz deep: database raggiungibile",
       r.status_code == 200 and r.json().get("database") == "ok", r.text[:200])
 
+# Che il database risponda non dice che abbia le colonne che il codice scrive.
+# Una migrazione non applicata non rompe una novita': rompe *ogni* generazione,
+# perche' l'insert le nomina tutte — ed e' successo davvero, fra un push e la
+# migrazione fatta dopo.
+check("healthz deep: lo schema e' quello che il codice si aspetta",
+      r.json().get("schema") == "ok", r.text[:200])
+
+import sqlite3 as _sq3  # noqa: E402
+
+from app.store import COLUMNS as _COLONNE, SqliteStore as _Sqlite  # noqa: E402
+
+# La colonna si toglie *dopo* aver costruito lo store: il costruttore ripara la
+# tabella da solo (ALTER ADD COLUMN per le mancanti), quindi partire da un
+# database vecchio non produrrebbe il caso da provare — lo aggiusterebbe.
+_dir_vecchio = tempfile.mkdtemp(prefix="mr-schema-")
+_vecchio = _Sqlite(_dir_vecchio)
+with _sq3.connect(os.path.join(_dir_vecchio, "generations.db")) as _con:
+    _con.execute("ALTER TABLE generations DROP COLUMN image_name")
+_problema = _vecchio.schema_problem()
+check("una colonna mancante viene vista e nominata",
+      _problema is not None and "image_name" in _problema, _problema)
+check("e le altre non vengono accusate a sproposito",
+      _problema is not None and "preview_key" not in _problema, _problema)
+
 # ----------------------------------------------------------------- analyze
 r = client.post("/api/analyze", files={"image": ("panel.png", io.BytesIO(IMG), "image/png")})
 check("analyze 200", r.status_code == 200, r.text[:200])
@@ -1075,7 +1099,7 @@ check("cleanup: errore DNS nomina l'host irraggiungibile",
 # The nightly cleanup failed in production with a 500 because the ISO
 # timestamp was interpolated straight into the URL: a raw "+" in a query
 # string is a space, so PostgREST got a malformed date and answered 400.
-from app.store import SupabaseStore  # noqa: E402
+from app.store import COLUMNS, SupabaseStore  # noqa: E402
 
 captured = {}
 
@@ -1155,6 +1179,45 @@ check("link_device: tocca solo le righe ancora anonime di quel dispositivo",
 check("link_device: timestamp url-encoded anche qui",
       "%2B" in patched["url"] and "+" not in patched["url"].split("?", 1)[1],
       patched["url"])
+# La verifica dello schema su PostgREST: chiede le colonne e legge la risposta.
+# Il pericolo qui non e' il 400, e' il contrario — un controllo che chiede meno
+# colonne di quelle che il codice scrive passerebbe per buona una tabella
+# incompleta, cioe' fallirebbe proprio nel caso per cui esiste.
+schema_captured = {}
+
+
+def _fake_schema_get(url, **kwargs):
+    schema_captured["params"] = kwargs.get("params")
+
+    class R:
+        status_code = schema_captured.get("code", 200)
+        text = schema_captured.get("body", "")
+
+    return R()
+
+
+real_get2, httpx.get = httpx.get, _fake_schema_get
+try:
+    _st = SupabaseStore("https://example.supabase.co", "key")
+    schema_captured["code"] = 200
+    esito_ok = _st.schema_problem()
+    chieste = (schema_captured["params"] or {}).get("select", "").split(",")
+
+    schema_captured["code"] = 400
+    schema_captured["body"] = ("{\"code\":\"PGRST204\",\"message\":\"Could not find "
+                               "the 'image_name' column of 'generations'\"}")
+    esito_ko = _st.schema_problem()
+finally:
+    httpx.get = real_get2
+
+check("schema: chiede tutte le colonne che il codice scrive, nessuna esclusa",
+      set(chieste) == set(COLUMNS), sorted(set(COLUMNS) - set(chieste)))
+check("schema: non chiede righe, solo la forma della tabella",
+      (schema_captured["params"] or {}).get("limit") == "0", schema_captured["params"])
+check("schema: una tabella completa non lamenta nulla", esito_ok is None, esito_ok)
+check("schema: una colonna mancante viene riportata con il nome che dice PostgREST",
+      esito_ko is not None and "image_name" in esito_ko, esito_ko)
+
 check("link_device: scrive l'account e riporta quante ne ha spostate",
       patched["json"] == {"user_id": "11111111-2222-3333-4444-555555555555"}
       and spostate == 1, (patched["json"], spostate))
