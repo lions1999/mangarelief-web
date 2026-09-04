@@ -5,7 +5,8 @@
  * server round-trip with a client-side port of the classifier, and nothing in
  * the UI should have to change when it does.
  */
-import type { Analysis, JobParams, JobView } from "./types";
+import { deviceId, expiringSoon, getSession, setSession, type Session } from "./session";
+import type { Analysis, JobParams, JobView, Quota } from "./types";
 
 const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -27,6 +28,63 @@ async function failure(res: Response): Promise<never> {
     /* non-JSON error body: keep the status text */
   }
   throw new ApiError(detail, res.status);
+}
+
+/**
+ * Le intestazioni comuni a ogni chiamata: chi sei e da quale browser.
+ *
+ * Rinnova il token prima che scada invece di aspettare un 401: una sessione
+ * che muore a metà di un caricamento è un errore che l'utente non capirebbe.
+ * Se il rinnovo fallisce si prosegue da anonimi, perché il sito deve
+ * continuare a funzionare anche quando l'accesso non funziona.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { "X-MangaRelief-Device": deviceId() };
+  let s = getSession();
+  if (s && expiringSoon(s) && s.refresh_token) {
+    try {
+      s = await refreshSession(s.refresh_token);
+      setSession(s);
+    } catch {
+      setSession(null);
+      s = null;
+    }
+  }
+  if (s) headers.Authorization = `Bearer ${s.access_token}`;
+  return headers;
+}
+
+export async function requestCode(email: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/auth/code`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) await failure(res);
+}
+
+export async function verifyCode(email: string, code: string):
+    Promise<Session & { linked: number }> {
+  const res = await fetch(`${BASE}/api/auth/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, device_id: deviceId() }),
+  });
+  return res.ok ? res.json() : failure(res);
+}
+
+export async function refreshSession(refresh_token: string): Promise<Session> {
+  const res = await fetch(`${BASE}/api/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token }),
+  });
+  return res.ok ? res.json() : failure(res);
+}
+
+export async function getQuota(): Promise<Quota> {
+  const res = await fetch(`${BASE}/api/quota`, { headers: await authHeaders() });
+  return res.ok ? res.json() : failure(res);
 }
 
 function form(file: File, params?: Partial<JobParams>, turnstileToken?: string): FormData {
@@ -71,6 +129,7 @@ export async function createJob(
 ): Promise<{ job_id: string; notes: string | null }> {
   const res = await fetch(`${BASE}/api/jobs`, {
     method: "POST",
+    headers: await authHeaders(),
     body: form(file, params, turnstileToken),
   });
   if (!res.ok) return failure(res);

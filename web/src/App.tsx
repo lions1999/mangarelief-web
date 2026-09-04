@@ -15,11 +15,14 @@ import PrintPanel from "./components/PrintPanel";
 import SpotPanel from "./components/SpotPanel";
 import Stage, { type StageView } from "./components/Stage";
 import TonesPanel from "./components/TonesPanel";
+import AccountBar from "./components/AccountBar";
+import SignIn from "./components/SignIn";
 import Turnstile, { turnstileEnabled } from "./components/Turnstile";
 import { useAccents } from "./hooks/useAccents";
 import { useTones } from "./hooks/useTones";
-import { analyze, createJob, getJob } from "./api";
-import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type RGB } from "./types";
+import { analyze, createJob, getJob, getQuota } from "./api";
+import { getSession, setSession, type Session } from "./session";
+import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type Quota, type RGB } from "./types";
 
 const POLL_MS = 1200;
 
@@ -34,8 +37,19 @@ export default function App() {
   const [token, setToken] = useState("");
   const [view, setView] = useState<StageView>("art");
   const [ambiguous, setAmbiguous] = useState<number | null>(null);
+  const [session, setSessionState] = useState<Session | null>(() => getSession());
+  const [quota, setQuota] = useState<Quota | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+  const [linkedNote, setLinkedNote] = useState("");
+
   const poll = useRef<number | undefined>(undefined);
   const stage = useRef<HTMLDivElement>(null);
+
+  const refreshQuota = useCallback(() => {
+    getQuota().then(setQuota).catch(() => setQuota(null));
+  }, []);
+
+  useEffect(() => { refreshQuota(); }, [refreshQuota, session]);
 
   const patch = useCallback(
     (p: Partial<JobParams>) => setParams((old) => ({ ...old, ...p })),
@@ -85,8 +99,9 @@ export default function App() {
     if (job && (job.status === "done" || job.status === "error" || job.status === "expired")) {
       setBusy(false);
       if (job.status === "error") setError(job.error ?? "generation failed");
+      refreshQuota();
     }
-  }, [job]);
+  }, [job, refreshQuota]);
 
   const generate = async () => {
     if (!file) return;
@@ -109,10 +124,31 @@ export default function App() {
 
   return (
     <div className="shell">
+      {signingIn && (
+        <SignIn
+          onCancel={() => setSigningIn(false)}
+          onDone={(linked) => {
+            setSigningIn(false);
+            setSessionState(getSession());
+            // Detto subito: scoprire dopo che le prove erano state scalate
+            // sembrerebbe un raggiro, anche se era scritto nel benvenuto.
+            if (linked > 0) {
+              setLinkedNote(`Le ${linked} generazioni già fatte da questo browser `
+                + "sono state contate sul tuo account.");
+            }
+          }}
+        />
+      )}
       <aside className="side">
         <div className="side-head">
           <h1>MangaRelief</h1>
           <p>A panel in, a printable multi-colour relief out.</p>
+          <AccountBar
+            session={session}
+            quota={quota}
+            onSignIn={() => setSigningIn(true)}
+            onSignOut={() => { setSession(null); setSessionState(null); }}
+          />
         </div>
 
         <div className="side-body">
@@ -172,8 +208,12 @@ export default function App() {
           </button>
           {error && <p className="field-error">{error}</p>}
           {notes && <p className="hint">{notes}</p>}
+          {linkedNote && <p className="hint">{linkedNote}</p>}
           <p className="hint small">
-            Free generations run at draft resolution · 5 per hour
+            {/* Il numero viene dalla quota vera: scritto a mano invecchiava a
+                ogni cambio di piano, e prima diceva "5 per hour" quando erano
+                gia' diventate 2 al giorno. */}
+            Draft resolution · {quota ? `${quota.limit} generazioni ogni 24 ore` : " "}
           </p>
         </div>
       </aside>

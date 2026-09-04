@@ -74,3 +74,12 @@ export const DEFAULT_PARAMS: JobParams = {
   spot_coverage: 40,
   autodetect_accents: true,
 };
+
+
+export interface Quota {
+  plan: "anonymous" | "registered";
+  limit: number;
+  used: number;
+  remaining: number;
+  reset_at: string | null;
+}
