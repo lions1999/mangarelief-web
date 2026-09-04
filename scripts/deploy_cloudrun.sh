@@ -42,8 +42,10 @@ echo
 # generazione fallisce, novita' o meno. E' successo davvero — fra un push e la
 # migrazione applicata dopo — e da fuori sembrava che il sito fosse rotto senza
 # motivo. Qui si vede in due secondi, prima di chiudere il terminale.
+# /api/health e non /healthz: quel percorso non arriva al container su
+# Cloud Run, se lo tiene l'infrastruttura davanti. Vedi main.py.
 echo "Checking the deploy (database + schema)..."
-HEALTH="$(curl -fsS --max-time 30 "$URL/healthz?deep=true" || true)"
+HEALTH="$(curl -fsS --max-time 30 "$URL/api/health?deep=true" || true)"
 echo "$HEALTH"
 case "$HEALTH" in
   *'"status":"ok"'*)

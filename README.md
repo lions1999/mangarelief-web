@@ -348,11 +348,19 @@ Everything is an env var, so the same image runs locally and in production.
 | `ANON_MAX_RES_CAP`, `ANON_MAX_DIM_MM` | Cloud Run | 800 px, 200 mm — the free tier, and the RAM ceiling |
 | `MAX_WORKERS`, `MAX_QUEUE`, `JOB_TIMEOUT_S` | Cloud Run | 1, 8, 600 |
 
-`/healthz` reports which backend is live: `"backend":"supabase"` or
+`/api/health` reports which backend is live: `"backend":"supabase"` or
 `"backend":"local"`. If a deploy that should be talking to Supabase says
 `local`, its credentials are missing.
 
-`/healthz?deep=true` goes further and answers the question a live service
+**Use `/api/health`, not `/healthz`.** The same handler answers on both, but on
+Cloud Run `/healthz` never reaches the container: something in front of it
+takes that path and answers with Google's own 404 page. That is measured, not
+assumed — on the same service, at the same moment, `/healthzz` (two z's, just
+as non-existent to this code) answered FastAPI's JSON `{"detail":"Not Found"}`
+while `/healthz` answered HTML. `/healthz` stays registered because it works
+everywhere else, and because removing it would break whatever already calls it.
+
+`/api/health?deep=true` goes further and answers the question a live service
 cannot otherwise be asked: **does the table have the columns this code
 writes?** It asks PostgREST for exactly the columns in `store.COLUMNS` with
 `limit=0`, and reports the answer as `"schema":"ok"` or, degraded, the column

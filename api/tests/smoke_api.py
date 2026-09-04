@@ -88,6 +88,20 @@ r = client.get("/healthz")
 check("healthz ok", r.status_code == 200 and r.json()["status"] == "ok", r.text[:120])
 check("healthz reports local backend", r.json()["backend"] == "local")
 
+# Su Cloud Run /healthz non arriva mai al container: l'infrastruttura davanti
+# se lo tiene e risponde con la propria pagina 404 — verificato sullo stesso
+# servizio, dove /healthzz (due z, inesistente allo stesso modo) rispondeva
+# regolarmente il 404 di FastAPI. Il controllo vive quindi su /api/health, e
+# questa prova esiste perche' non torni a esserci un solo indirizzo, proprio
+# quello che in produzione non si puo' leggere.
+alt = client.get("/api/health?deep=true")
+check("lo stato si legge anche da /api/health, che in produzione e' l'unico che arriva",
+      alt.status_code == 200 and alt.json()["status"] == "ok", alt.text[:120])
+check("i due indirizzi dicono esattamente la stessa cosa",
+      alt.json() == client.get("/healthz?deep=true").json(), alt.text[:120])
+check("la radice indica l'indirizzo che funziona in produzione",
+      client.get("/").json()["health"] == "/api/health", client.get("/").json())
+
 r = client.get("/healthz?deep=true")
 check("healthz deep: database raggiungibile",
       r.status_code == 200 and r.json().get("database") == "ok", r.text[:200])

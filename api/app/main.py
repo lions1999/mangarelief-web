@@ -201,11 +201,26 @@ def root():
     return {
         "service": "MangaRelief API",
         "docs": "/docs",
-        "health": "/healthz",
+        "health": "/api/health",
         "source": "https://github.com/lions1999/mangarelief-web",
     }
 
 
+# Due percorsi, la stessa risposta, e il primo e' quello che conta.
+#
+# `/healthz` non arriva mai qui su Cloud Run: qualcosa nell'infrastruttura
+# davanti al container se lo tiene e risponde con la propria pagina 404. Non e'
+# un'ipotesi — sullo stesso servizio, nello stesso momento, `/healthzz` (due z,
+# un percorso che qui dentro non esiste altrettanto) risponde
+# `{"detail":"Not Found"}` in JSON, cioe' il 404 di FastAPI, mentre `/healthz`
+# risponde HTML di Google. Due percorsi inesistenti allo stesso modo per questo
+# codice, trattati diversamente da chi sta davanti.
+#
+# Il controllo dello stato serve soprattutto in produzione, quindi vive dove la
+# produzione lo lascia arrivare. `/healthz` resta registrato perche' funziona
+# ovunque tranne li' — in locale, in un container qualsiasi, dietro un altro
+# proxy — e perche' toglierlo romperebbe qualunque cosa lo stia gia' chiamando.
+@app.get("/api/health")
 @app.get("/healthz")
 def healthz(deep: bool = False):
     """Liveness, plus an optional database round-trip.
