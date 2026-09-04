@@ -208,13 +208,27 @@ def root():
 
 # Due percorsi, la stessa risposta, e il primo e' quello che conta.
 #
-# `/healthz` non arriva mai qui su Cloud Run: qualcosa nell'infrastruttura
-# davanti al container se lo tiene e risponde con la propria pagina 404. Non e'
-# un'ipotesi — sullo stesso servizio, nello stesso momento, `/healthzz` (due z,
-# un percorso che qui dentro non esiste altrettanto) risponde
-# `{"detail":"Not Found"}` in JSON, cioe' il 404 di FastAPI, mentre `/healthz`
-# risponde HTML di Google. Due percorsi inesistenti allo stesso modo per questo
-# codice, trattati diversamente da chi sta davanti.
+# Su Cloud Run `/healthz` non arriva mai qui: viene respinto dal bordo di
+# Google prima ancora di entrare nel percorso che serve questo servizio. E'
+# misurato, non supposto — le risposte lo dicono da sole:
+#
+#   /healthz    404 text/html, referrer-policy: no-referrer, nessun'altra
+#   /healthzz   404 application/json, server: Google Frontend,
+#                   x-cloud-trace-context: 8ce7d4f1...
+#
+# `/healthzz` (due z, un percorso che qui dentro non esiste altrettanto) e' il
+# 404 di FastAPI, e torna firmato e tracciato. `/healthz` non porta ne' la
+# firma ne' l'identificativo di traccia che Google assegna alle richieste
+# destinate a un servizio: non e' il container ad aver detto di no, e' che il
+# container non l'ha mai sentita.
+#
+# La forma dell'intercettazione, sempre misurata: corrispondenza letterale ed
+# esatta su quella stringa. `/healthz/` prende il 307 con cui FastAPI redirige
+# per la barra finale (quindi la richiesta e' arrivata), `/Healthz` passa,
+# `/healthz/x` passa; la query non conta (`/healthz?deep=true` viene preso
+# uguale) e vale sia per GET sia per POST. Non e' una lista di nomi di sonda:
+# `/livez`, `/readyz`, `/healthcheck` e `/_ah/health` arrivano tutti fin qui.
+# Solo quella stringa e' sottratta.
 #
 # Il controllo dello stato serve soprattutto in produzione, quindi vive dove la
 # produzione lo lascia arrivare. `/healthz` resta registrato perche' funziona

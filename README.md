@@ -359,12 +359,35 @@ Everything is an env var, so the same image runs locally and in production.
 `local`, its credentials are missing.
 
 **Use `/api/health`, not `/healthz`.** The same handler answers on both, but on
-Cloud Run `/healthz` never reaches the container: something in front of it
-takes that path and answers with Google's own 404 page. That is measured, not
-assumed — on the same service, at the same moment, `/healthzz` (two z's, just
-as non-existent to this code) answered FastAPI's JSON `{"detail":"Not Found"}`
-while `/healthz` answered HTML. `/healthz` stays registered because it works
-everywhere else, and because removing it would break whatever already calls it.
+Cloud Run `/healthz` is rejected at Google's edge before it ever enters the
+path that serves this service. Measured, not assumed — the two responses say it
+themselves:
+
+```
+/healthz    404  text/html         referrer-policy: no-referrer   (nothing else)
+/healthzz   404  application/json  server: Google Frontend
+                                   x-cloud-trace-context: 8ce7d4f1…
+```
+
+`/healthzz` — two z's, just as non-existent to this code — is FastAPI's own 404,
+and comes back signed and traced. `/healthz` carries neither the signature nor
+the trace id Google assigns to requests destined for a service: it is not the
+container saying no, it is the container never hearing the question.
+
+The interception is a literal, exact match on that one string. `/healthz/`
+gets the 307 with which FastAPI redirects a trailing slash (so it arrived),
+`/Healthz` arrives, `/healthz/x` arrives; the query string is irrelevant
+(`/healthz?deep=true` is taken too) and it applies to GET and POST alike. It is
+not a list of probe names either: `/livez`, `/readyz`, `/healthcheck` and
+`/_ah/health` all reach the app. Only that string is taken.
+
+`/healthz` stays registered because it works everywhere else, and because
+removing it would break whatever already calls it.
+
+**The reusable part of this**, when something 404s in production and works
+locally: compare the response headers against a path you know is missing.
+`server` and `x-cloud-trace-context` tell "the app said no" apart from "the app
+never heard" — and those are two entirely different investigations.
 
 `/api/health?deep=true` goes further and answers the question a live service
 cannot otherwise be asked: **does the table have the columns this code
