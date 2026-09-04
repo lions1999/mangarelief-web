@@ -458,11 +458,17 @@ for:
   removed 100 and left 5, silently. It now loops until a short page comes back.
   Nothing was being lost in practice (a prefix holds two or three files), but
   with 1 GB of space that is a leak you notice late.
-- **Reads come from a cache.** Overwrite a key and the listing shows the new
-  size while a read still returns the old bytes. Uploads now state
-  `cache-control: no-store` rather than inheriting a default nobody chose.
-  Nothing here is ever overwritten — every key comes from a unique id — but a
-  property you believe you have and do not is worse than one you know you lack.
+- **Keys must never be reused**, and that is now a measured limit rather than a
+  preference. Overwrite one and the write lands — the listing shows the new
+  size immediately — while reads keep returning the old bytes for about a
+  minute: the CDN in front of Supabase invalidates asynchronously
+  (`cf-cache-status: HIT`, stale body, `last-modified` already updated,
+  consistent after ~56s). It cannot be fixed from this side:
+  `cache-control: no-store` is accepted, stored and echoed back, and the CDN
+  serves from cache anyway. Uploads send it regardless — it states the intent
+  and keeps the lag to the CDN's instead of adding an hour of object cache on
+  top — but nothing here is ever overwritten anyway: every key carries a job
+  id. To change an object, change the key.
 
 `--molti` writes 105 objects on purpose: that is the number that exposed the
 first one.

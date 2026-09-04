@@ -66,19 +66,26 @@ class SupabaseStorage:
         self.headers = {"apikey": key, "Authorization": f"Bearer {key}"}
 
     def put(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
-        """Scrive un oggetto, sostituendolo se la chiave esiste gia'.
+        """Scrive un oggetto. **Le chiavi non si riusano mai.**
 
-        `cache-control` e' esplicito perche' il valore ereditato non era una
-        scelta: senza, Supabase serve le letture da una cache di un'ora, e
-        riscrivere una chiave lascia rileggere il contenuto vecchio. Misurato
-        sul bucket vero — dopo la sostituzione l'elenco riportava la dimensione
-        nuova mentre la lettura restituiva ancora quella vecchia.
+        Non e' una preferenza di stile, e' un limite misurato della
+        piattaforma. Riscrivendo una chiave la scrittura arriva — l'elenco
+        riporta subito la dimensione nuova — ma la lettura continua a
+        restituire i byte vecchi per **una sessantina di secondi**: davanti a
+        Supabase c'e' una CDN che invalida in modo asincrono. Misurato sul
+        bucket vero: `cf-cache-status: HIT`, contenuto vecchio, `last-modified`
+        gia' aggiornata, allineamento dopo circa 56s.
 
-        Oggi non ci morderebbe (ogni chiave nasce da un identificativo unico e
-        non viene mai riscritta), ma una proprieta' che si crede di avere e non
-        si ha e' peggio di una che si sa di non avere. Cachare qui non ci fa
-        guadagnare niente: chi legge e' la nostra API, che sulle proprie
-        risposte mette le intestazioni che vuole.
+        Dal nostro lato non si corregge. `cache-control: no-store` viene
+        accettato, salvato e riecheggiato nella risposta, e la CDN serve dalla
+        cache lo stesso. Lo mandiamo comunque, perche' dichiara l'intenzione e
+        limita il ritardo a quello della CDN invece di sommarci anche un'ora di
+        cache sull'oggetto — non perche' risolva.
+
+        Va bene cosi' perche' ogni chiave nasce da un identificativo unico
+        (`<job_id>/...`, `history/<job_id>/...`) e non viene mai riscritta. Chi
+        un giorno volesse aggiornare un oggetto: cambi la chiave, non il
+        contenuto.
         """
         r = httpx.post(
             f"{self.base}/object/{self.bucket}/{key}",
