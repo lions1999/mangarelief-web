@@ -45,8 +45,16 @@ class Settings:
     # --- Upload / abuse limits ------------------------------------------
     max_upload_bytes: int = field(default_factory=lambda: _env_int("MAX_UPLOAD_BYTES", 12 * 1024 * 1024))
     max_image_pixels: int = field(default_factory=lambda: _env_int("MAX_IMAGE_PIXELS", 40_000_000))
-    anon_rate_limit: int = field(default_factory=lambda: _env_int("ANON_RATE_LIMIT", 5))
-    anon_rate_window_s: int = field(default_factory=lambda: _env_int("ANON_RATE_WINDOW_S", 3600))
+    # Quota durevole, contata sulle righe di `generations`. Sostituisce la
+    # finestra scorrevole in memoria, che era per-istanza: con due istanze il
+    # limite raddoppiava di fatto.
+    quota_anon_daily: int = field(default_factory=lambda: _env_int("QUOTA_ANON_DAILY", 2))
+    quota_user_daily: int = field(default_factory=lambda: _env_int("QUOTA_USER_DAILY", 5))
+    quota_window_h: int = field(default_factory=lambda: _env_int("QUOTA_WINDOW_H", 24))
+    # Rete di sicurezza per chi svuota il browser per rifarsi le prove gratuite.
+    # Piu' alta della quota per dispositivo di proposito: sotto CGNAT un solo
+    # indirizzo copre molte persone, e stringere qui punisce chi non c'entra.
+    quota_anon_ip_daily: int = field(default_factory=lambda: _env_int("QUOTA_ANON_IP_DAILY", 10))
     ip_hash_salt: str = field(default_factory=lambda: _env("IP_HASH_SALT", "mangarelief-dev-salt"))
     # Cloudflare Turnstile. Unset = no challenge, which is what local
     # development and the first deploy run with.

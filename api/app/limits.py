@@ -1,43 +1,18 @@
-"""Abuse limits for the anonymous tier.
+"""Free-tier ceilings, IP hashing and captcha.
 
-The rate limiter is an in-memory sliding window: it is per-instance, so with
-several instances the effective limit multiplies. That is a deliberate MVP
-trade-off — the durable count lives in `generations` (see `store.count_recent`),
-which the quota logic of phase 3 will use instead.
+The generation *count* is no longer here: it moved to `quota`, which reads it
+from `generations`. The sliding window that used to live in this module was
+per-process, so two Cloud Run instances doubled the effective limit and a
+restart reset it — a placeholder that phase 3 replaced.
 """
 
 from __future__ import annotations
 
 import hashlib
-import threading
-import time
-from collections import defaultdict, deque
-from typing import Deque, Dict
 
 from .config import settings
 
 
-class SlidingWindowLimiter:
-    def __init__(self, limit: int, window_s: int):
-        self.limit = limit
-        self.window_s = window_s
-        self._hits: Dict[str, Deque[float]] = defaultdict(deque)
-        self._lock = threading.Lock()
-
-    def check(self, key: str) -> tuple[bool, int]:
-        """(allowed, seconds until a slot frees up)."""
-        now = time.time()
-        with self._lock:
-            hits = self._hits[key]
-            while hits and now - hits[0] > self.window_s:
-                hits.popleft()
-            if len(hits) >= self.limit:
-                return False, int(self.window_s - (now - hits[0])) + 1
-            hits.append(now)
-            return True, 0
-
-
-limiter = SlidingWindowLimiter(settings.anon_rate_limit, settings.anon_rate_window_s)
 
 
 def hash_ip(ip: str) -> str:

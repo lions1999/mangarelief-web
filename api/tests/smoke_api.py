@@ -21,7 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WORK = tempfile.mkdtemp(prefix="mr-smoke-")
 os.environ.setdefault("LOCAL_DATA_DIR", os.path.join(WORK, "data"))
 os.environ.setdefault("CLEANUP_TOKEN", "smoke-token")
-os.environ.setdefault("ANON_RATE_LIMIT", "20")
+os.environ.setdefault("QUOTA_ANON_DAILY", "300")
+os.environ.setdefault("QUOTA_USER_DAILY", "300")
+os.environ.setdefault("QUOTA_ANON_IP_DAILY", "600")
 os.environ.setdefault("MAX_UPLOAD_BYTES", str(4 * 1024 * 1024))
 
 import cv2  # noqa: E402
@@ -478,10 +480,103 @@ check("unknown job -> 404", client.get("/api/jobs/nope").status_code == 404)
 check("unknown artifact kind -> 404",
       client.get(f"/api/jobs/{job_id}/artifacts/obj").status_code == 404)
 
-# -------------------------------------------------------------- rate limit
-codes = [upload({"mode": "standard", "max_dim": 40, "max_res_cap": 200}).status_code
-         for _ in range(14)]
-check("rate limit kicks in", 429 in codes, codes)
+# ------------------------------------------------------------------- quota
+# Il conteggio sta sul database, non in memoria: la finestra scorrevole di
+# prima era per-processo, quindi due istanze raddoppiavano il limite e un
+# riavvio lo azzerava. Qui si stringono le soglie per davvero e si verifica
+# che il rifiuto arrivi al numero giusto, per il dispositivo giusto.
+from datetime import timedelta  # noqa: E402
+
+from app import auth as _auth  # noqa: E402
+from app import quota as _quota  # noqa: E402
+from app.config import settings as _cfg  # noqa: E402
+
+
+def _errore_su(fn):
+    """Il tipo dell'eccezione sollevata, o None se non ne solleva."""
+    try:
+        fn()
+    except Exception as exc:  # noqa: BLE001 - e' proprio quello che misuriamo
+        return type(exc)
+    return None
+
+
+DISPOSITIVO = "aaaaaaaa-1111-2222-3333-444444444444"
+ALTRO = "bbbbbbbb-1111-2222-3333-444444444444"
+_orig = (_cfg.quota_anon_daily, _cfg.quota_user_daily, _cfg.quota_anon_ip_daily)
+_cfg.quota_anon_daily, _cfg.quota_user_daily, _cfg.quota_anon_ip_daily = 2, 300, 600
+try:
+    def piccolo(dev=None, token=None):
+        h = {}
+        if dev:
+            h["X-MangaRelief-Device"] = dev
+        if token:
+            h["Authorization"] = f"Bearer {token}"
+        return upload({"mode": "standard", "max_dim": 40, "max_res_cap": 200},
+                      headers=h or None)
+
+    esiti = [piccolo(DISPOSITIVO).status_code for _ in range(3)]
+    check("anonimo: due generazioni passano, la terza no", esiti == [202, 202, 429], esiti)
+
+    # Il conteggio e' per dispositivo, non per IP: sotto CGNAT un indirizzo
+    # copre migliaia di persone, e contare l'IP negherebbe la prova a chi non
+    # ha ancora fatto nulla. Stesso IP (i test girano tutti da 'testclient'),
+    # browser diverso, quota intatta.
+    check("un altro browser dallo stesso IP ha la sua quota",
+          piccolo(ALTRO).status_code == 202)
+
+    q = client.get("/api/quota", headers={"X-MangaRelief-Device": DISPOSITIVO}).json()
+    check("la quota si legge senza consumarne una",
+          q["plan"] == "anonymous" and q["limit"] == 2 and q["used"] >= 2
+          and q["remaining"] == 0, q)
+    check("dice quando si libera uno slot", q["reset_at"], q)
+    q2 = client.get("/api/quota", headers={"X-MangaRelief-Device": DISPOSITIVO}).json()
+    check("leggerla non e' un consumo", q2["used"] == q["used"], (q["used"], q2["used"]))
+
+    # Senza intestazione si ricade sull'IP: altrimenti basterebbe ometterla per
+    # non essere contati affatto.
+    _cfg.quota_anon_ip_daily = 1
+    check("senza id dispositivo si conta l'IP, non si passa liberi",
+          piccolo().status_code == 429)
+    _cfg.quota_anon_ip_daily = 600
+
+    # Con un account il conteggio e' su user_id: svuotare il browser non serve.
+    _cfg.quota_user_daily = 1
+    _fetch_orig = _auth.fetch_user
+    _auth.fetch_user = lambda t: {"id": "99999999-0000-0000-0000-000000000001",
+                                  "email": "quota@esempio.it"} if t == "tok" else None
+    _auth.reset_cache()
+    check("con account: la prima passa", piccolo(DISPOSITIVO, "tok").status_code == 202)
+    check("con account: la seconda no, anche cambiando browser",
+          piccolo(ALTRO, "tok").status_code == 429)
+    qa = client.get("/api/quota", headers={"Authorization": "Bearer tok"}).json()
+    check("la quota di chi ha l'account e' del piano registrato",
+          qa["plan"] == "registered" and qa["limit"] == 1, qa)
+
+    # Le prove anonime si attaccano all'account al primo accesso: chi prova e
+    # poi si registra non riparte dal totale pieno.
+    st = get_store()
+    prima = st.usage_since("user_id", "99999999-0000-0000-0000-000000000001",
+                           utcnow() - timedelta(hours=24))[0]
+    spostate = st.link_device(ALTRO, "99999999-0000-0000-0000-000000000001",
+                              utcnow() - timedelta(hours=24))
+    dopo = st.usage_since("user_id", "99999999-0000-0000-0000-000000000001",
+                          utcnow() - timedelta(hours=24))[0]
+    check("le generazioni anonime del browser passano all'account",
+          spostate >= 1 and dopo == prima + spostate, (prima, spostate, dopo))
+    check("collegare due volte non le conta due volte",
+          st.link_device(ALTRO, "99999999-0000-0000-0000-000000000001",
+                         utcnow() - timedelta(hours=24)) == 0)
+
+    check("un id dispositivo malformato viene ignorato, non finisce in query",
+          _quota.clean_device_id("../../etc") is None
+          and _quota.clean_device_id("x" * 200) is None)
+    check("un campo non ammesso per la quota viene rifiutato",
+          _errore_su(lambda: st.usage_since("params", "x", utcnow())) is ValueError)
+finally:
+    _cfg.quota_anon_daily, _cfg.quota_user_daily, _cfg.quota_anon_ip_daily = _orig
+    _auth.fetch_user = _fetch_orig
+    _auth.reset_cache()
 
 # ------------------------------------------------------------------ cleanup
 check("cleanup without token -> 401",
@@ -508,7 +603,6 @@ check("cleaned job has no artifacts",
 import httpx  # noqa: E402  (ri-importato: il blocco deve reggersi da solo)
 
 from app import auth  # noqa: E402
-from app.limits import limiter as _limiter  # noqa: E402
 
 
 def drena(timeout: float = 120.0):
@@ -523,9 +617,10 @@ def drena(timeout: float = 120.0):
 
 
 def invia_autenticato(token: str | None = None):
-    """Un invio isolato: contatore del rate limit azzerato e coda vuota, cosi'
-    l'esito dipende solo dall'autenticazione."""
-    _limiter._hits.clear()
+    """Un invio isolato: coda vuota, cosi' l'esito dipende solo
+    dall'autenticazione e non da un 503 lasciato dai blocchi precedenti.
+    Le quote qui sono larghe (vedi le variabili in cima), le stringe solo il
+    blocco che le misura."""
     drena()
     headers = {"Authorization": token} if token else None
     return upload({"mode": "standard", "max_dim": 60, "max_res_cap": 300,
@@ -577,7 +672,6 @@ try:
 finally:
     auth.fetch_user = _vero_fetch
     auth.reset_cache()
-    _limiter._hits.clear()
     drena()
 
 # ------------------------------------------------------------------- CORS
@@ -671,12 +765,60 @@ try:
     listed = captured["url"]
     store.count_recent("abc", utcnow())
     counted = captured["url"]
+    store.usage_since("device_id", "aaaa-bbbb", utcnow())
+    used = captured["url"]
 finally:
     httpx.get = real_get
 
-for name, url in (("list_expired", listed), ("count_recent", counted)):
+for name, url in (("list_expired", listed), ("count_recent", counted),
+                  ("usage_since", used)):
     check(f"{name}: timestamp url-encoded, non un '+' grezzo",
           "%2B" in url and "+" not in url.split("?", 1)[1], url)
+
+# usage_since deve chiedere conteggio e riga piu' vecchia in un giro solo:
+# il totale arriva nell'header, la piu' vecchia nel corpo.
+check("usage_since: filtra sul campo giusto e ordina per prendere la piu' vecchia",
+      "device_id=eq.aaaa-bbbb" in used and "order=created_at.asc" in used
+      and "limit=1" in used, used)
+
+# link_device usa PATCH, non GET: va intercettato a parte. Deve toccare SOLO
+# le righe ancora anonime, altrimenti riattribuirebbe generazioni gia' di
+# qualcun altro.
+patched = {}
+
+
+def _fake_patch(url, **kwargs):
+    patched["url"] = str(httpx.Request("PATCH", url, params=kwargs.get("params")).url)
+    patched["json"] = kwargs.get("json")
+
+    class R:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return [{"id": "x"}]
+
+    return R()
+
+
+real_patch, httpx.patch = httpx.patch, _fake_patch
+try:
+    spostate = SupabaseStore("https://example.supabase.co", "key").link_device(
+        "aaaa-bbbb", "11111111-2222-3333-4444-555555555555", utcnow())
+finally:
+    httpx.patch = real_patch
+
+check("link_device: tocca solo le righe ancora anonime di quel dispositivo",
+      "device_id=eq.aaaa-bbbb" in patched["url"] and "user_id=is.null" in patched["url"],
+      patched["url"])
+check("link_device: timestamp url-encoded anche qui",
+      "%2B" in patched["url"] and "+" not in patched["url"].split("?", 1)[1],
+      patched["url"])
+check("link_device: scrive l'account e riporta quante ne ha spostate",
+      patched["json"] == {"user_id": "11111111-2222-3333-4444-555555555555"}
+      and spostate == 1, (patched["json"], spostate))
 
 print("\n" + ("ALL OK" if not fails else "FAILED: " + ", ".join(fails)))
 sys.exit(1 if fails else 0)

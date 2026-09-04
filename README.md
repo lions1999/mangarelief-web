@@ -138,6 +138,16 @@ past it, and `/api/internal/cleanup` removes the files.
 
 ## Free-tier limits
 
+**Generations are counted on the database**, not in memory: two per rolling
+24h without an account, five with one. The count that matters is keyed on
+`user_id` when signed in and on a random per-browser id otherwise — *not* on
+the IP address, because under CGNAT one address covers thousands of people and
+counting it denies the free trial to whoever arrives second. Clearing browser
+data resets that id, which is why a wider per-IP ceiling sits behind it.
+
+`GET /api/quota` reports what is left without consuming anything, so the page
+can say so before an upload rather than after.
+
 Anonymous requests are capped at Draft resolution (`max_res_cap` 800) and 200 mm.
 This is not only a commercial line: an Ultra run peaks well past a gigabyte of
 RAM before decimation, which no free instance survives. Lowered values are
@@ -222,7 +232,9 @@ Everything is an env var, so the same image runs locally and in production.
 | `TURNSTILE_SECRET` / `VITE_TURNSTILE_SITE_KEY` | Cloud Run / Pages | Optional captcha. Unset means no challenge |
 | `RETENTION_HOURS`, `POST_DOWNLOAD_HOURS` | Cloud Run | 48 and 24 |
 | `MAX_UPLOAD_BYTES`, `MAX_IMAGE_PIXELS` | Cloud Run | 12 MB, 40 MP |
-| `ANON_RATE_LIMIT`, `ANON_RATE_WINDOW_S` | Cloud Run | 5 per hour per IP |
+| `QUOTA_ANON_DAILY`, `QUOTA_USER_DAILY` | Cloud Run | 2 and 5 generations per rolling window |
+| `QUOTA_WINDOW_H` | Cloud Run | 24 — the window the two above are counted over |
+| `QUOTA_ANON_IP_DAILY` | Cloud Run | 10 — safety net for someone clearing their browser to reset the free trials. Higher than the per-device figure on purpose: under CGNAT one address covers many people |
 | `ANON_MAX_RES_CAP`, `ANON_MAX_DIM_MM` | Cloud Run | 800 px, 200 mm — the free tier, and the RAM ceiling |
 | `MAX_WORKERS`, `MAX_QUEUE`, `JOB_TIMEOUT_S` | Cloud Run | 1, 8, 600 |
 

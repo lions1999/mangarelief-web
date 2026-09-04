@@ -22,8 +22,8 @@ import httpx
 
 from .config import settings
 
-COLUMNS = ("id", "created_at", "user_id", "ip_hash", "mode", "params", "status",
-           "progress", "message", "duration_s", "error", "artifacts",
+COLUMNS = ("id", "created_at", "user_id", "ip_hash", "device_id", "mode", "params",
+           "status", "progress", "message", "duration_s", "error", "artifacts",
            "filament_changes", "expires_at", "downloaded_at")
 
 
@@ -57,6 +57,7 @@ class SqliteStore:
                     created_at TEXT NOT NULL,
                     user_id TEXT,
                     ip_hash TEXT,
+                    device_id TEXT,
                     mode TEXT NOT NULL,
                     params TEXT NOT NULL,
                     status TEXT NOT NULL,
@@ -114,13 +115,40 @@ class SqliteStore:
             row = con.execute("SELECT * FROM generations WHERE id = ?", (job_id,)).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def count_recent(self, ip_hash: str, since: datetime) -> int:
+    def usage_since(self, field: str, value: str, since: datetime) -> tuple:
+        """(quante generazioni, la piu' vecchia) per un'identita' nella finestra.
+
+        Due valori in una query sola: il conteggio decide se puoi generare, la
+        piu' vecchia dice *quando* si libera uno slot — con una finestra
+        scorrevole non e' la mezzanotte, e' quella riga piu' 24 ore.
+        """
+        if field not in ("user_id", "ip_hash", "device_id"):
+            raise ValueError(f"campo non ammesso per la quota: {field}")
         with self._connect() as con:
             row = con.execute(
-                "SELECT COUNT(*) AS n FROM generations WHERE ip_hash = ? AND created_at >= ?",
-                (ip_hash, iso(since)),
+                f"SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM generations "
+                f"WHERE {field} = ? AND created_at >= ?",
+                (value, iso(since)),
             ).fetchone()
-        return int(row["n"])
+        return int(row["n"]), row["oldest"]
+
+    def count_recent(self, ip_hash: str, since: datetime) -> int:
+        return self.usage_since("ip_hash", ip_hash, since)[0]
+
+    def link_device(self, device_id: str, user_id: str, since: datetime) -> int:
+        """Attribuisce all'account le generazioni anonime fatte da quel browser.
+
+        Cosi' chi prova due volte e poi si registra non riparte dal totale
+        pieno. Nessun caso speciale nel conteggio: una volta scritto user_id,
+        la quota per utente le include da sola.
+        """
+        with self._connect() as con:
+            cur = con.execute(
+                "UPDATE generations SET user_id = ? "
+                "WHERE device_id = ? AND user_id IS NULL AND created_at >= ?",
+                (user_id, device_id, iso(since)),
+            )
+            return int(cur.rowcount or 0)
 
     def list_expired(self, now: datetime, limit: int = 200) -> List[Dict[str, Any]]:
         with self._connect() as con:
@@ -166,15 +194,33 @@ class SupabaseStore:
         rows = r.json()
         return rows[0] if rows else None
 
-    def count_recent(self, ip_hash: str, since: datetime) -> int:
+    def usage_since(self, field: str, value: str, since: datetime) -> tuple:
+        """Conteggio e riga piu' vecchia in un solo giro: il totale arriva
+        nell'header Content-Range, la piu' vecchia nel corpo."""
+        if field not in ("user_id", "ip_hash", "device_id"):
+            raise ValueError(f"campo non ammesso per la quota: {field}")
         r = httpx.get(
             self.base,
-            params={"ip_hash": f"eq.{ip_hash}", "created_at": f"gte.{iso(since)}",
-                    "select": "id"},
-            headers={**self.headers, "Prefer": "count=exact", "Range": "0-0"}, timeout=30.0)
+            params={field: f"eq.{value}", "created_at": f"gte.{iso(since)}",
+                    "select": "created_at", "order": "created_at.asc", "limit": "1"},
+            headers={**self.headers, "Prefer": "count=exact"}, timeout=30.0)
         r.raise_for_status()
-        content_range = r.headers.get("content-range", "*/0")
-        return int(content_range.split("/")[-1] or 0)
+        total = int(r.headers.get("content-range", "*/0").split("/")[-1] or 0)
+        rows = r.json() or []
+        return total, (rows[0]["created_at"] if rows else None)
+
+    def count_recent(self, ip_hash: str, since: datetime) -> int:
+        return self.usage_since("ip_hash", ip_hash, since)[0]
+
+    def link_device(self, device_id: str, user_id: str, since: datetime) -> int:
+        r = httpx.patch(
+            self.base,
+            params={"device_id": f"eq.{device_id}", "user_id": "is.null",
+                    "created_at": f"gte.{iso(since)}"},
+            json={"user_id": user_id},
+            headers={**self.headers, "Prefer": "return=representation"}, timeout=30.0)
+        r.raise_for_status()
+        return len(r.json() or [])
 
     def list_expired(self, now: datetime, limit: int = 200) -> List[Dict[str, Any]]:
         r = httpx.get(

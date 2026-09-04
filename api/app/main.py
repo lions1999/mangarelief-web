@@ -32,7 +32,8 @@ from .auth import current_user
 from .config import settings
 from .imaging import ImageTooLarge, UndecodableImage, decode_upload
 from .jobs import safe_stem, QueueFull, runner
-from .limits import clamp_to_anonymous_tier, hash_ip, limiter, turnstile_ok
+from .limits import clamp_to_anonymous_tier, hash_ip, turnstile_ok
+from . import quota
 from .schemas import (AnalysisResult, Artifact, FilamentChange, JobCreated,
                       JobParams, JobStatus, JobView)
 from .storage import get_storage
@@ -341,6 +342,22 @@ def _disposition(kind: str, filename: str) -> str:
     return f"{kind}; filename=\"{plain}\"; filename*=UTF-8''{quote(filename)}"
 
 
+@app.get("/api/quota")
+def read_quota(
+    request: Request,
+    user: Optional[dict] = Depends(current_user),
+    x_mangarelief_device: Optional[str] = Header(default=None),
+):
+    """Quante generazioni restano, senza consumarne una.
+
+    Serve al contatore in pagina: chi arriva deve sapere quante ne ha *prima*
+    di caricare un'immagine e scoprire di non poterla usare.
+    """
+    return quota.current(get_store(), user,
+                         quota.clean_device_id(x_mangarelief_device),
+                         hash_ip(client_ip(request))).as_dict()
+
+
 @app.post("/api/jobs", response_model=JobCreated, status_code=status.HTTP_202_ACCEPTED)
 def create_job(
     request: Request,
@@ -349,6 +366,7 @@ def create_job(
     params: Optional[str] = Form(None),
     turnstile_token: Optional[str] = Form(None),
     user: Optional[dict] = Depends(current_user),
+    x_mangarelief_device: Optional[str] = Header(default=None),
 ):
     p = parse_params(params)
     if p.mode.value not in settings.allowed_modes:
@@ -360,11 +378,8 @@ def create_job(
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "captcha verification failed, reload and try again")
     ip_key = hash_ip(ip)
-    allowed, retry_after = limiter.check(ip_key)
-    if not allowed:
-        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
-                            f"rate limit reached, retry in {retry_after}s",
-                            headers={"Retry-After": str(retry_after)})
+    device = quota.clean_device_id(x_mangarelief_device)
+    quota.enforce(get_store(), user, device, ip_key)
 
     notes = clamp_to_anonymous_tier(p)
     data = read_upload(image)
@@ -385,6 +400,9 @@ def create_job(
         # counts, in place of the IP hash it counts today.
         "user_id": user["id"] if user else None,
         "ip_hash": ip_key,
+        # Quale browser: e' su questo che si contano le prove anonime, e il
+        # filo che le lega all'account quando ci si registra dopo aver provato.
+        "device_id": device,
         "mode": p.mode.value,
         "params": {"requested": p.model_dump(mode="json"),
                    "resolved": engine_kwargs, "analysis": info, "notes": notes},
