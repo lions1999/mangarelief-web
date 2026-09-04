@@ -549,7 +549,7 @@ web/
   src/App.tsx             The shell: settings sidebar + stage
   src/api.ts              The only module that knows the API exists
   src/components/Stage.tsx         The stage: artwork picker or finished model
-  src/components/         Dropzone, look, print, tones, accents, progress
+  src/components/         Dropzone, mode, print, tones, accents, progress
   src/components/Welcome.tsx       First visit: what it does, what it costs
   src/components/History.tsx       Past generations, as a grid of mockups
   src/components/Info.tsx          The «i» popovers next to the headings

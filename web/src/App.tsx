@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Dropzone from "./components/Dropzone";
-import LookPanel from "./components/LookPanel";
+import ModePanel from "./components/ModePanel";
 import PrintPanel from "./components/PrintPanel";
 import SpotPanel from "./components/SpotPanel";
 import History from "./components/History";
@@ -240,7 +240,7 @@ export default function App() {
             )}
           </section>
 
-          <LookPanel
+          <ModePanel
             params={params}
             analysis={analysis}
             disabled={busy}

@@ -26,13 +26,13 @@ const MODES: { value: Mode; label: string }[] = [
   { value: "spot_color", label: "Spot colour" },
 ];
 
-export default function LookPanel({ params, analysis, disabled, ambiguous, onChange }: Props) {
+export default function ModePanel({ params, analysis, disabled, ambiguous, onChange }: Props) {
   const colours = params.color_mode ?? analysis?.color_mode ?? 4;
 
   return (
     <section className="panel">
       <h2>
-        Look
+        Mode
         {/* Le due descrizioni stanno qui e non sotto i pulsanti perche' una
             scelta fra due cose si fa confrontandole, e affiancate si
             confrontano: sotto i rispettivi pulsanti erano due testi separati
