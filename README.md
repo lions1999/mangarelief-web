@@ -433,6 +433,31 @@ something other than what production runs.
 policies are not here. It is PostgREST over Postgres, not Supabase: the job
 says our queries are right, not that the platform is.
 
+### Storage
+
+`scripts/check_storage.py` exercises the real bucket under a prefix of its own
+(`_check/<timestamp>-<random>/`, deleted afterwards even when a check fails).
+Run it after touching `app/storage.py`; it needs nothing but `httpx` and the
+service-role key in the environment.
+
+It is a script you run, not a CI job, and that is a decision rather than an
+omission: a fake storage would prove my assumptions with my assumptions, and a
+CI job would mean putting the service-role key in GitHub secrets — a second
+place it can leak from — for a check that matters only when that file changes.
+
+`--locale` runs the same list against `LocalStorage` with no network at all,
+which is how the script itself is tested, and incidentally holds the two
+implementations to the same behaviour the way `contract_store.py` does for the
+database.
+
+The assumption worth measuring is inside `delete_prefix`: it lists the objects
+under a prefix and deletes them by name, assuming those names come back
+*relative* to the prefix. If they came back absolute it would delete paths that
+do not exist and **answer 200** — orphans that sit in the bucket forever with
+no error anywhere. With 1 GB of space and ~9 MB per generation, that is a leak
+you notice late. `--molti` additionally writes 105 objects, because the listing
+asks for `limit: 100`.
+
 ### Supabase
 
 The schema lives in `supabase/migrations/` — the layout the Supabase GitHub
