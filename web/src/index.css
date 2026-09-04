@@ -214,25 +214,27 @@ body { margin: 0; }
 .dropzone.compact span { font-size: 11.5px; }
 
 /* --------------------------------------------------------------- modes */
-.modes { display: grid; gap: 8px; }
+/* Due pulsanti affiancati, come il selettore dei colori: le descrizioni sono
+   passate dietro la "i" del titolo, dove si leggono confrontate invece che una
+   sotto l'altra. Sotto ogni pulsante occupavano quattro righe fisse che, dalla
+   seconda visita in poi, stavano solo fra te e il comando successivo. */
+.modes { display: flex; gap: 8px; }
 
 .mode {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  text-align: left;
-  padding: 12px;
-  border-radius: 10px;
+  flex: 1;
+  padding: 12px 8px;
+  border-radius: 9px;
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--ink);
   cursor: pointer;
   font: inherit;
-  font-size: 13.5px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }
 .mode:hover:not(:disabled) { border-color: #3a4050; }
 .mode.active { border-color: var(--accent); background: #241b1d; }
-.mode span { color: var(--muted); font-size: 12px; line-height: 1.45; }
 .mode:disabled { opacity: 0.55; cursor: default; }
 
 /* -------------------------------------------------------------- fields */

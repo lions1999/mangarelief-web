@@ -21,17 +21,9 @@ interface Props {
 /** Above this, two colours is the wrong tool for the artwork, not a setting to tune. */
 const AMBIGUOUS_WARN = 0.10;
 
-const MODES: { value: Mode; label: string; blurb: string }[] = [
-  {
-    value: "standard",
-    label: "Standard relief",
-    blurb: "Grayscale terraces. The colour count follows the halftone density of the artwork.",
-  },
-  {
-    value: "spot_color",
-    label: "Spot colour",
-    blurb: "Silkscreen look: white base, one or two accents, black linework on top.",
-  },
+const MODES: { value: Mode; label: string }[] = [
+  { value: "standard", label: "Standard relief" },
+  { value: "spot_color", label: "Spot colour" },
 ];
 
 export default function LookPanel({ params, analysis, disabled, ambiguous, onChange }: Props) {
@@ -39,7 +31,32 @@ export default function LookPanel({ params, analysis, disabled, ambiguous, onCha
 
   return (
     <section className="panel">
-      <h2>Look</h2>
+      <h2>
+        Look
+        {/* Le due descrizioni stanno qui e non sotto i pulsanti perche' una
+            scelta fra due cose si fa confrontandole, e affiancate si
+            confrontano: sotto i rispettivi pulsanti erano due testi separati
+            che dicevano ciascuno cosa faceva il proprio, e la domanda vera —
+            quale dei due mi serve — restava senza risposta. */}
+        <Info label="the two modes">
+          <p>
+            <strong>Standard relief</strong> — the artwork's own greys become
+            printed levels, one filament each. How many levels suits it depends
+            on how much of the panel is halftone rather than flat black and
+            white.
+          </p>
+          <p>
+            <strong>Spot colour</strong> — a silkscreen: white base, one or two
+            colours picked off the artwork, black linework on top. Everything
+            else is forced to paper or ink.
+          </p>
+          <p>
+            Line art and shading print well as Standard. A panel carrying one
+            or two strong colours is what Spot colour is for. Switching costs
+            nothing: the preview follows immediately.
+          </p>
+        </Info>
+      </h2>
       <div className="modes">
         {MODES.map((m) => (
           <button
@@ -49,8 +66,7 @@ export default function LookPanel({ params, analysis, disabled, ambiguous, onCha
             className={`mode${params.mode === m.value ? " active" : ""}`}
             onClick={() => onChange({ mode: m.value })}
           >
-            <strong>{m.label}</strong>
-            <span>{m.blurb}</span>
+            {m.label}
           </button>
         ))}
       </div>
