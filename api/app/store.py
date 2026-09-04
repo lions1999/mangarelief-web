@@ -30,6 +30,15 @@ COLUMNS = ("id", "created_at", "user_id", "ip_hash", "device_id", "mode", "param
            "image_name", "preview_key", "source_key", "hidden_at")
 
 
+class ConteggioNonDisponibile(RuntimeError):
+    """Il database non ha detto quante righe ci sono.
+
+    Esiste per non avere un valore di ripiego: un conteggio mancante letto come
+    zero e' una quota che sparisce in silenzio, per tutti, senza un errore da
+    nessuna parte. Meglio rifiutare la generazione e dirlo.
+    """
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -268,9 +277,18 @@ class SupabaseStore:
                     "select": "created_at", "order": "created_at.asc", "limit": "1"},
             headers={**self.headers, "Prefer": "count=exact"}, timeout=30.0)
         r.raise_for_status()
-        total = int(r.headers.get("content-range", "*/0").split("/")[-1] or 0)
+
+        # Il totale arriva nell'intestazione, non nel corpo. Se non c'e' o non
+        # e' un numero non si tira a indovinare: era `or 0`, cioe' "in caso di
+        # dubbio, nessuna generazione usata" — il ripiego nella direzione
+        # sbagliata, che avrebbe tolto il tetto a tutti senza far rumore.
+        grezzo = r.headers.get("content-range", "").split("/")[-1]
+        if not grezzo.isdigit():
+            raise ConteggioNonDisponibile(
+                f"PostgREST non ha riportato il totale: content-range="
+                f"{r.headers.get('content-range')!r}")
         rows = r.json() or []
-        return total, (rows[0]["created_at"] if rows else None)
+        return int(grezzo), (rows[0]["created_at"] if rows else None)
 
     def count_recent(self, ip_hash: str, since: datetime) -> int:
         return self.usage_since("ip_hash", ip_hash, since)[0]

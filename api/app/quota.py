@@ -31,7 +31,7 @@ from typing import Any, Dict, Optional
 from fastapi import HTTPException, status
 
 from .config import settings
-from .store import parse_iso, utcnow
+from .store import ConteggioNonDisponibile, parse_iso, utcnow
 
 # Un id di dispositivo e' generato dal browser: prima di finire in una query
 # va ristretto a una forma nota. UUID o esadecimale, niente altro.
@@ -82,10 +82,23 @@ def _reset_at(oldest_iso: Optional[str]) -> Optional[str]:
 
 def current(store, user: Optional[dict], device_id: Optional[str],
             ip_hash: str) -> Quota:
-    """Lo stato della quota per chi sta chiedendo. Non solleva: serve anche a
-    mostrare il contatore prima che qualcuno provi a generare."""
+    """Lo stato della quota per chi sta chiedendo.
+
+    Non rifiuta per quota esaurita — a quello pensa `enforce` — ma se il
+    conteggio non si puo' fare si ferma: un contatore che dice "ne hai 5"
+    perche' non e' riuscito a contarle e' peggio di un errore.
+    """
     since = utcnow() - timedelta(hours=settings.quota_window_h)
 
+    try:
+        return _conta(store, user, device_id, ip_hash, since)
+    except ConteggioNonDisponibile as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            "cannot count your generations right now, try again shortly") from exc
+
+
+def _conta(store, user: Optional[dict], device_id: Optional[str],
+           ip_hash: str, since) -> Quota:
     if user:
         used, oldest = store.usage_since("user_id", user["id"], since)
         if user.get("plan") == UNLIMITED:

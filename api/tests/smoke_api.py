@@ -1242,6 +1242,63 @@ check("schema: una tabella completa non lamenta nulla", esito_ok is None, esito_
 check("schema: una colonna mancante viene riportata con il nome che dice PostgREST",
       esito_ko is not None and "image_name" in esito_ko, esito_ko)
 
+# Il conteggio della quota arriva da un'intestazione, non dal corpo. Se manca,
+# il valore di ripiego di prima ("*/0") lo leggeva come zero generazioni usate:
+# quota illimitata per tutti, in silenzio, senza un errore da nessuna parte. Il
+# ripiego era nella direzione sbagliata.
+from app.store import ConteggioNonDisponibile  # noqa: E402
+
+
+def _get_con_intestazione(valore):
+    def finto(url, **kwargs):
+        class R:
+            headers = {} if valore is None else {"content-range": valore}
+
+            @staticmethod
+            def raise_for_status():
+                return None
+
+            @staticmethod
+            def json():
+                return []
+
+        return R()
+    return finto
+
+
+_conta_store = SupabaseStore("https://example.supabase.co", "key")
+real_get3 = httpx.get
+try:
+    httpx.get = _get_con_intestazione("0-0/7")
+    buono = _conta_store.usage_since("user_id", "u", utcnow())
+
+    httpx.get = _get_con_intestazione(None)
+    senza = _errore_su(lambda: _conta_store.usage_since("user_id", "u", utcnow()))
+
+    httpx.get = _get_con_intestazione("*/*")
+    sballata = _errore_su(lambda: _conta_store.usage_since("user_id", "u", utcnow()))
+finally:
+    httpx.get = real_get3
+
+check("quota: il totale si legge dall'intestazione", buono == (7, None), buono)
+check("quota: senza intestazione non si tira a indovinare",
+      senza is ConteggioNonDisponibile, senza)
+check("quota: un totale non numerico non diventa zero",
+      sballata is ConteggioNonDisponibile, sballata)
+
+
+class _ArchivioMuto:
+    def usage_since(self, *a, **k):
+        raise ConteggioNonDisponibile("niente totale")
+
+
+_esito = None
+try:
+    _quota.current(_ArchivioMuto(), None, "dev-x", "ip-x")
+except Exception as exc:  # noqa: BLE001
+    _esito = getattr(exc, "status_code", type(exc).__name__)
+check("quota: se non si puo' contare si rifiuta, non si concede", _esito == 503, _esito)
+
 check("link_device: scrive l'account e riporta quante ne ha spostate",
       patched["json"] == {"user_id": "11111111-2222-3333-4444-555555555555"}
       and spostate == 1, (patched["json"], spostate))

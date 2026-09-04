@@ -215,6 +215,12 @@ data resets that id, which is why a wider per-IP ceiling sits behind it.
 `GET /api/quota` reports what is left without consuming anything, so the page
 can say so before an upload rather than after.
 
+If the count cannot be made, the answer is `503`, not a number. The total comes
+back in PostgREST's `Content-Range` header rather than in the body, and the
+fallback used to read a missing header as **zero generations used** — a quota
+that disappears for everybody, silently, with no error anywhere. A fallback has
+a direction, and that one pointed the wrong way.
+
 A first-time visitor is told all of this before loading anything: a welcome
 screen states the allowance, that the free generations already made from that
 browser transfer onto the account at sign-in (so signing in brings you to five
