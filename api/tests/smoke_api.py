@@ -568,6 +568,42 @@ try:
           st.link_device(ALTRO, "99999999-0000-0000-0000-000000000001",
                          utcnow() - timedelta(hours=24)) == 0)
 
+    # Piano senza tetto: il ruolo sta in app_metadata, che solo la chiave
+    # service-role puo' scrivere. In user_metadata se lo scriverebbe l'utente,
+    # e un piano modificabile da chi ne beneficia non e' un piano.
+    _cfg.quota_user_daily = 1
+    ILLIM = {"id": "55555555-0000-0000-0000-000000000009",
+             "email": "titolare@esempio.it", "plan": "unlimited"}
+    _auth.fetch_user = lambda t: ILLIM if t == "illim" else None
+    _auth.reset_cache()
+    _risposte_ill = [piccolo(DISPOSITIVO, "illim") for _ in range(3)]
+    esiti_ill = [r.status_code for r in _risposte_ill]
+    _job_ids_illim = [r.json()["job_id"] for r in _risposte_ill if r.status_code == 202]
+    check("piano illimitato: il tetto sul numero non si applica",
+          esiti_ill == [202, 202, 202], esiti_ill)
+    qi = client.get("/api/quota", headers={"Authorization": "Bearer illim"}).json()
+    check("la quota illimitata si dichiara tale",
+          qi["plan"] == "unlimited" and qi["limit"] is None and qi["remaining"] is None, qi)
+    check("anche senza tetto le generazioni si contano lo stesso", qi["used"] >= 3, qi)
+
+    # Il tetto tolto e' quello sul CONTEGGIO, non sulla ritenzione: lo spazio
+    # e' la risorsa scarsa, e resta 48h come per tutti.
+    check("i file del piano illimitato scadono come gli altri",
+          all(abs((parse_iso(r["expires_at"]) - parse_iso(r["created_at"])).total_seconds()
+                  / 3600 - 48) < 0.2
+              for r in [get_store().get(j) for j in _job_ids_illim]),
+          [(r["created_at"], r["expires_at"]) for r in
+           [get_store().get(j) for j in _job_ids_illim]])
+
+    # Un piano scritto dove se lo scrive l'utente non deve valere nulla:
+    # fetch_user legge app_metadata, non user_metadata.
+    _auth.fetch_user = lambda t: {"id": "55555555-0000-0000-0000-00000000000a",
+                                  "email": "furbo@esempio.it", "plan": None}
+    _auth.reset_cache()
+    check("senza piano in app_metadata si resta sul piano registrato",
+          client.get("/api/quota", headers={"Authorization": "Bearer x"}).json()["plan"]
+          == "registered")
+
     check("un id dispositivo malformato viene ignorato, non finisce in query",
           _quota.clean_device_id("../../etc") is None
           and _quota.clean_device_id("x" * 200) is None)

@@ -65,7 +65,18 @@ def fetch_user(token: str) -> Optional[Dict[str, Any]]:
         return None
     body = r.json()
     uid = body.get("id")
-    return {"id": uid, "email": body.get("email")} if uid else None
+    if not uid:
+        return None
+    # Il piano sta in app_metadata, non in user_metadata: il primo lo scrive
+    # solo la chiave service-role, il secondo puo' scriverselo l'utente. Un
+    # piano modificabile da chi ne beneficia non e' un piano.
+    #
+    # La chiave si chiama `plan` e non `role` perche' GoTrue ha gia' un campo
+    # `role` suo, che vale "authenticated" per tutti: sovrapporsi confonderebbe
+    # due cose diverse.
+    meta = body.get("app_metadata") or {}
+    return {"id": uid, "email": body.get("email"),
+            "plan": (meta.get("plan") or "").strip().lower() or None}
 
 
 def _reject_disposable(user: Optional[Dict[str, Any]]) -> None:

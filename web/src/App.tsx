@@ -213,7 +213,9 @@ export default function App() {
             {/* Il numero viene dalla quota vera: scritto a mano invecchiava a
                 ogni cambio di piano, e prima diceva "5 per hour" quando erano
                 gia' diventate 2 al giorno. */}
-            Draft resolution · {quota ? `${quota.limit} generazioni ogni 24 ore` : " "}
+            Draft resolution · {quota ? (quota.limit == null
+              ? "generazioni illimitate"
+              : `${quota.limit} generazioni ogni 24 ore`) : " "}
           </p>
         </div>
       </aside>

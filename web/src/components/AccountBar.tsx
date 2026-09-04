@@ -29,16 +29,21 @@ function whenFree(reset: string | null): string {
 }
 
 export default function AccountBar({ session, quota, onSignIn, onSignOut }: Props) {
-  const out = quota ? quota.remaining <= 0 : false;
+  const senzaTetto = quota?.limit == null;
+  const out = quota && !senzaTetto ? (quota.remaining ?? 0) <= 0 : false;
 
   return (
     <div className="account-bar">
       <span className={`quota${out ? " out" : ""}`}>
         {quota ? (
-          <>
-            <strong>{quota.remaining}</strong> di {quota.limit} generazioni
-            {out && quota.reset_at && <em>una si libera {whenFree(quota.reset_at)}</em>}
-          </>
+          senzaTetto ? (
+            <>generazioni <strong>illimitate</strong></>
+          ) : (
+            <>
+              <strong>{quota.remaining}</strong> di {quota.limit} generazioni
+              {out && quota.reset_at && <em>una si libera {whenFree(quota.reset_at)}</em>}
+            </>
+          )
         ) : (
           <span className="hint">…</span>
         )}

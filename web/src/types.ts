@@ -77,9 +77,10 @@ export const DEFAULT_PARAMS: JobParams = {
 
 
 export interface Quota {
-  plan: "anonymous" | "registered";
-  limit: number;
+  plan: "anonymous" | "registered" | "unlimited";
+  /** null quando il piano non ha tetto. */
+  limit: number | null;
   used: number;
-  remaining: number;
+  remaining: number | null;
   reset_at: string | null;
 }

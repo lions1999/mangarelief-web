@@ -173,6 +173,33 @@ data resets that id, which is why a wider per-IP ceiling sits behind it.
 `GET /api/quota` reports what is left without consuming anything, so the page
 can say so before an upload rather than after.
 
+### Plans
+
+| Plan | Generations | How you get it |
+|---|---|---|
+| `anonymous` | 2 per rolling 24h | no account |
+| `registered` | 5 per rolling 24h | signed in |
+| `unlimited` | no cap | granted per account |
+
+**Retention does not change with the plan.** Files still expire after 48h, or
+24h from the first download: the cap that is lifted is on the count, not on
+storage, which is the scarce resource.
+
+The plan lives in `auth.users.raw_app_meta_data`, which only the service-role
+key can write — `user_metadata` is writable by the account itself, and a plan
+its beneficiary can edit is not a plan. To grant it, in the Supabase SQL
+editor:
+
+```sql
+update auth.users
+   set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
+                           || '{"plan":"unlimited"}'::jsonb
+ where email = 'tu@esempio.it';
+```
+
+Revoke with `- 'plan'` in place of the `||` clause. The change takes effect
+within a minute — the API caches a verified token that long.
+
 Anonymous requests are capped at Draft resolution (`max_res_cap` 800) and 200 mm.
 This is not only a commercial line: an Ultra run peaks well past a gigabyte of
 RAM before decimation, which no free instance survives. Lowered values are

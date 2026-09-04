@@ -45,16 +45,26 @@ def clean_device_id(raw: Optional[str]) -> Optional[str]:
     return raw if _DEVICE_RE.match(raw) else None
 
 
+# Piano senza tetto sul numero di generazioni. La ritenzione NON cambia: i file
+# scadono a 48 ore, 24 dal primo scaricamento, come per tutti — il tetto tolto
+# e' quello sul conteggio, non quello sullo spazio, che e' la risorsa scarsa.
+UNLIMITED = "unlimited"
+
+
 @dataclass
 class Quota:
-    plan: str            # "anonymous" | "registered"
-    limit: int
+    plan: str                 # "anonymous" | "registered" | "unlimited"
+    limit: Optional[int]      # None = nessun tetto
     used: int
     reset_at: Optional[str]   # quando si libera il primo slot, ISO
 
     @property
-    def remaining(self) -> int:
-        return max(0, self.limit - self.used)
+    def unlimited(self) -> bool:
+        return self.limit is None
+
+    @property
+    def remaining(self) -> Optional[int]:
+        return None if self.unlimited else max(0, self.limit - self.used)
 
     def as_dict(self) -> Dict[str, Any]:
         return {"plan": self.plan, "limit": self.limit, "used": self.used,
@@ -78,6 +88,10 @@ def current(store, user: Optional[dict], device_id: Optional[str],
 
     if user:
         used, oldest = store.usage_since("user_id", user["id"], since)
+        if user.get("plan") == UNLIMITED:
+            # Il conteggio si fa comunque: serve a vedere quanto si sta usando
+            # il servizio, anche quando non lo si sta limitando.
+            return Quota(UNLIMITED, None, used, None)
         return Quota("registered", settings.quota_user_daily, used, _reset_at(oldest))
 
     # Senza un id di dispositivo utilizzabile si ricade sull'IP: altrimenti
@@ -99,6 +113,8 @@ def enforce(store, user: Optional[dict], device_id: Optional[str],
     giustifica un lock distribuito.
     """
     q = current(store, user, device_id, ip_hash)
+    if q.unlimited:
+        return q
     if q.remaining <= 0:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
