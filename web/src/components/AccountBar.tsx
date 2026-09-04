@@ -29,39 +29,35 @@ function whenFree(reset: string | null): string {
 }
 
 export default function AccountBar({ session, quota, onSignIn, onSignOut }: Props) {
-  const senzaTetto = quota?.limit == null;
-  const out = quota && !senzaTetto ? (quota.remaining ?? 0) <= 0 : false;
+  const unlimited = quota?.limit == null;
+  const out = quota && !unlimited ? (quota.remaining ?? 0) <= 0 : false;
 
   return (
     <div className="account">
-      {/* Prima riga: due elementi corti e prevedibili. L'indirizzo email non
-          sta qui — e' l'unica cosa di lunghezza arbitraria, e messo accanto al
-          pulsante lo comprimeva fino a "sig...". Va sotto, dove ha tutta la
-          larghezza per se' e puo' accorciarsi senza portarsi dietro nessuno. */}
-      <div className="account-bar">
-      <span className={`quota${out ? " out" : ""}`}>
-        {quota ? (
-          senzaTetto ? (
-            <><strong>unlimited</strong> generations</>
-          ) : (
-            <>
-              <strong>{quota.remaining}</strong> of {quota.limit} generations
-              {out && quota.reset_at && <em>one frees up {whenFree(quota.reset_at)}</em>}
-            </>
-          )
-        ) : (
-          <span className="hint">…</span>
-        )}
-      </span>
-      {session ? (
-        <button type="button" className="link" onClick={onSignOut}>sign out</button>
-      ) : (
-        <button type="button" className="link" onClick={onSignIn}>sign in</button>
-      )}
+      {/* Etichetta a sinistra, valore a destra: e' lo schema che la barra
+          laterale usa gia' per ogni impostazione (Long side · 180 mm). Cosi'
+          l'occhio trova il numero sempre nello stesso punto, e cambia solo
+          quello — non la frase intorno. */}
+      <div className="account-row">
+        <span>Generations left</span>
+        <strong className={out ? "out" : ""}>
+          {quota ? (unlimited ? "unlimited" : quota.remaining) : "—"}
+        </strong>
       </div>
-      {session?.email && (
-        <p className="account-who" title={session.email}>{session.email}</p>
+
+      {out && quota?.reset_at && (
+        <p className="account-note">one frees up {whenFree(quota.reset_at)}</p>
       )}
+
+      <div className="account-row">
+        {session?.email && (
+          <span className="account-who" title={session.email}>{session.email}</span>
+        )}
+        <button type="button" className="link"
+                onClick={session ? onSignOut : onSignIn}>
+          {session ? "sign out" : "sign in"}
+        </button>
+      </div>
     </div>
   );
 }
