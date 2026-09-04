@@ -1299,6 +1299,47 @@ except Exception as exc:  # noqa: BLE001
     _esito = getattr(exc, "status_code", type(exc).__name__)
 check("quota: se non si puo' contare si rifiuta, non si concede", _esito == 503, _esito)
 
+# Cancellare un oggetto che non c'e': Supabase risponde 400, non 404. Misurato
+# sul bucket vero — la versione che aspettava solo il 404 sollevava invece di
+# dire "non c'era", e la potatura della cronologia lo leggeva come un guasto.
+from app.storage import SupabaseStorage  # noqa: E402
+
+
+def _delete_che_risponde(codice, corpo=""):
+    def finto(metodo, url, **kwargs):
+        class R:
+            status_code = codice
+            text = corpo
+
+            @staticmethod
+            def raise_for_status():
+                if codice >= 400:
+                    raise httpx.HTTPStatusError("boom", request=None, response=None)
+
+        return R()
+    return finto
+
+
+_bucket = SupabaseStorage("https://example.supabase.co", "key", "generations")
+real_request = httpx.request
+try:
+    httpx.request = _delete_che_risponde(200)
+    c_ok = _bucket.delete("x")
+    httpx.request = _delete_che_risponde(404)
+    c_404 = _bucket.delete("x")
+    httpx.request = _delete_che_risponde(400, '{"error":"not_found","message":"Object not found"}')
+    c_400 = _bucket.delete("x")
+    httpx.request = _delete_che_risponde(400, '{"error":"InvalidKey","message":"bad key"}')
+    c_altro = _errore_su(lambda: _bucket.delete("x"))
+finally:
+    httpx.request = real_request
+
+check("delete: un oggetto cancellato risponde True", c_ok is True, c_ok)
+check("delete: un 404 vuol dire che non c'era", c_404 is False, c_404)
+check("delete: e cosi' il 400 con cui Supabase dice la stessa cosa", c_400 is False, c_400)
+check("delete: un 400 diverso resta un errore, non diventa 'non c'era'",
+      c_altro is not None, c_altro)
+
 check("link_device: scrive l'account e riporta quante ne ha spostate",
       patched["json"] == {"user_id": "11111111-2222-3333-4444-555555555555"}
       and spostate == 1, (patched["json"], spostate))

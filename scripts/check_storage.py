@@ -57,6 +57,19 @@ def check(nome, ok, extra=""):
         fails.append(nome)
 
 
+def check_fn(nome, fn, extra=""):
+    """Come `check`, ma il controllo e' una funzione: se solleva, e' un
+    fallimento con dentro il motivo — non la fine della prova. La prima
+    versione valutava l'espressione prima di entrare in `check`, e la prima
+    risposta inattesa dello storage vero ha buttato giu' tutto il resto."""
+    try:
+        esito = fn()
+    except Exception as exc:  # noqa: BLE001
+        check(nome, False, f"{type(exc).__name__}: {exc}"[:200])
+        return
+    check(nome, bool(esito), extra)
+
+
 def errore_di(fn):
     try:
         fn()
@@ -96,8 +109,27 @@ try:
           f"{len(letto)} byte contro {len(dati)}")
 
     # x-upsert: riscrivere la stessa chiave deve sostituire, non fallire.
-    storage.put(f"{prefisso}/a.bin", b"nuovo", "application/octet-stream")
-    check("riscrivere la stessa chiave sostituisce", storage.get(f"{prefisso}/a.bin") == b"nuovo")
+    check_fn("riscrivere la stessa chiave non da' errore",
+             lambda: storage.put(f"{prefisso}/a.bin", b"nuovo",
+                                 "application/octet-stream") is None)
+    riletto = storage.get(f"{prefisso}/a.bin")
+    check("e rileggendo si trova il contenuto nuovo", riletto == b"nuovo",
+          f"{len(riletto)} byte")
+    if riletto != b"nuovo" and isinstance(storage, SupabaseStorage):
+        # Due spiegazioni molto diverse, e l'elenco le distingue: se la
+        # dimensione registrata e' quella nuova, l'oggetto e' stato sostituito
+        # e a essere vecchia e' la lettura (una cache davanti). Se e' quella
+        # vecchia, l'upsert non ha sostituito niente.
+        import httpx as _hx
+        el = _hx.post(f"{storage.base}/object/list/{storage.bucket}",
+                      json={"prefix": prefisso + "/", "limit": 10},
+                      headers=storage.headers, timeout=60.0)
+        voci = {v["name"]: v for v in (el.json() if el.status_code == 200 else [])}
+        meta = (voci.get("a.bin") or {}).get("metadata") or {}
+        print(f"    -> l'elenco dice: dimensione={meta.get('size')}, "
+              f"aggiornato={ (voci.get('a.bin') or {}).get('updated_at') }")
+        print("    -> dimensione 5 = sostituito, e a essere vecchia e' la lettura (cache).")
+        print("    -> dimensione 2048 = l'upsert non ha sostituito niente.")
 
     check("una chiave che non esiste solleva, non restituisce vuoto",
           errore_di(lambda: storage.get(f"{prefisso}/mai-scritta.bin")) is not None)
@@ -113,8 +145,8 @@ try:
           errore_di(lambda: storage.get(f"{prefisso}/coppia/source.webp")) is not None)
     check("mentre quello accanto resta",
           storage.get(f"{prefisso}/coppia/preview.webp") == b"miniatura")
-    check("cancellare due volte non e' un errore, dice solo che non c'era",
-          storage.delete(f"{prefisso}/coppia/source.webp") is False)
+    check_fn("cancellare due volte non e' un errore, dice solo che non c'era",
+             lambda: storage.delete(f"{prefisso}/coppia/source.webp") is False)
 
     # ------------------------------------------------------- cancellare una cartella
     # L'assunzione da verificare: i nomi che l'elenco restituisce sono relativi

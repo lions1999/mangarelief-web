@@ -81,9 +81,22 @@ class SupabaseStorage:
         return r.content
 
     def delete(self, key: str) -> bool:
+        """Cancella un oggetto. False se non c'era.
+
+        Supabase risponde **400**, non 404, quando la chiave non esiste — con
+        "not found" nel corpo. Misurato sul bucket vero: la versione che
+        aspettava solo il 404 sollevava un'eccezione al posto di rispondere
+        "non c'era", e chi chiama (la potatura della cronologia) la
+        interpretava come un guasto dello storage.
+
+        Il 400 si legge solo quando dice davvero questo: un 400 diverso e' un
+        errore, e trasformarlo in "non c'era" nasconderebbe il motivo.
+        """
         r = httpx.request("DELETE", f"{self.base}/object/{self.bucket}/{key}",
                           headers=self.headers, timeout=60.0)
         if r.status_code == 404:
+            return False
+        if r.status_code == 400 and "not found" in r.text.lower():
             return False
         r.raise_for_status()
         return True
