@@ -429,6 +429,40 @@ body { margin: 0; }
 }
 .modal-actions .primary { width: auto; flex: 0 0 auto; }
 
+/* ----------------------------------------------------------- benvenuto */
+/* Piu' largo della finestra di accesso perche' qui si legge, non si compila:
+   a 420px le tre righe delle regole diventano sei e sembrano un contratto. */
+.welcome { width: min(520px, 100%); }
+
+.welcome-steps {
+  margin: 16px 0 0;
+  padding-left: 20px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.welcome-steps li + li { margin-top: 8px; }
+.welcome-steps strong { color: var(--ink); }
+
+/* Le regole stanno su un fondo diverso: non sono istruzioni, sono le
+   condizioni: chi salta il resto deve almeno inciampare in queste. */
+.welcome-facts {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+}
+.welcome-facts p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.welcome-facts p + p { margin-top: 10px; }
+.welcome-facts strong { color: var(--ink); }
+.welcome-privacy { border-top: 1px solid var(--line); padding-top: 10px; }
+
 .account {
   margin-top: 12px;
   padding-top: 11px;

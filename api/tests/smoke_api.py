@@ -480,6 +480,34 @@ check("unknown job -> 404", client.get("/api/jobs/nope").status_code == 404)
 check("unknown artifact kind -> 404",
       client.get(f"/api/jobs/{job_id}/artifacts/obj").status_code == 404)
 
+# ------------------------------------------------------------------ limits
+# Le regole del servizio servite come numeri: e' quello che il benvenuto
+# racconta a chi arriva, e serve che venga da qui e non dal testo della pagina.
+from app.config import settings as _s  # noqa: E402
+
+lim = client.get("/api/limits")
+check("limits: risponde senza autenticazione e senza dispositivo", lim.status_code == 200,
+      lim.status_code)
+L = lim.json()
+check("limits: le quote sono quelle configurate",
+      L["anon_generations"] == _s.quota_anon_daily
+      and L["user_generations"] == _s.quota_user_daily
+      and L["window_h"] == _s.quota_window_h, L)
+check("limits: la ritenzione e' quella configurata",
+      L["retention_h"] == _s.retention_hours
+      and L["post_download_h"] == _s.post_download_hours, L)
+check("limits: il tetto di caricamento e' in MB", L["max_upload_mb"] == 4, L["max_upload_mb"])
+check("limits: riporta i limiti tecnici del piano gratuito",
+      L["max_res_cap"] == _s.anon_max_res_cap and L["max_dim_mm"] == _s.anon_max_dim_mm, L)
+check("limits: elenca le modalita' aperte", L["modes"] == _s.allowed_modes, L["modes"])
+# Un endpoint pubblico che nasce dalle impostazioni e' il posto giusto in cui
+# far scivolare per sbaglio una chiave: qui si controlla che non succeda.
+check("limits: non espone nulla di segreto",
+      not any(k in L for k in ("supabase_key", "supabase_url", "ip_hash_salt",
+                               "cleanup_token", "turnstile_secret"))
+      and _s.ip_hash_salt not in json.dumps(L), L)
+
+
 # ------------------------------------------------------------------- quota
 # Il conteggio sta sul database, non in memoria: la finestra scorrevole di
 # prima era per-processo, quindi due istanze raddoppiavano il limite e un

@@ -6,7 +6,7 @@
  * the UI should have to change when it does.
  */
 import { deviceId, expiringSoon, getSession, setSession, type Session } from "./session";
-import type { Analysis, JobParams, JobView, Quota } from "./types";
+import type { Analysis, JobParams, JobView, Limits, Quota } from "./types";
 
 const BASE = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -79,6 +79,11 @@ export async function refreshSession(refresh_token: string): Promise<Session> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token }),
   });
+  return res.ok ? res.json() : failure(res);
+}
+
+export async function getLimits(): Promise<Limits> {
+  const res = await fetch(`${BASE}/api/limits`);
   return res.ok ? res.json() : failure(res);
 }
 

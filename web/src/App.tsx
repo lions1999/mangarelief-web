@@ -17,12 +17,14 @@ import Stage, { type StageView } from "./components/Stage";
 import TonesPanel from "./components/TonesPanel";
 import AccountBar from "./components/AccountBar";
 import SignIn from "./components/SignIn";
+import Welcome from "./components/Welcome";
 import Turnstile, { turnstileEnabled } from "./components/Turnstile";
+import { plural, windowLabel } from "./copy";
 import { useAccents } from "./hooks/useAccents";
 import { useTones } from "./hooks/useTones";
-import { ApiError, analyze, createJob, getJob, getQuota } from "./api";
-import { getSession, setSession, type Session } from "./session";
-import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type Quota, type RGB } from "./types";
+import { ApiError, analyze, createJob, getJob, getLimits, getQuota } from "./api";
+import { getSession, markWelcomeSeen, setSession, welcomeSeen, type Session } from "./session";
+import { DEFAULT_PARAMS, type Analysis, type JobParams, type JobView, type Limits, type Quota, type RGB } from "./types";
 
 const POLL_MS = 1200;
 
@@ -40,6 +42,10 @@ export default function App() {
   const [session, setSessionState] = useState<Session | null>(() => getSession());
   const [quota, setQuota] = useState<Quota | null>(null);
   const [signingIn, setSigningIn] = useState(false);
+  const [limits, setLimits] = useState<Limits | null>(null);
+  // Deciso una volta all'avvio: legato allo stato vivo, il benvenuto
+  // riapparirebbe da solo appena qualcuno esce dall'account.
+  const [welcome, setWelcome] = useState(() => !welcomeSeen() && !getSession());
   const [linkedNote, setLinkedNote] = useState("");
 
   const poll = useRef<number | undefined>(undefined);
@@ -59,6 +65,20 @@ export default function App() {
   }, []);
 
   useEffect(() => { refreshQuota(); }, [refreshQuota, session]);
+
+  useEffect(() => { getLimits().then(setLimits).catch(() => setLimits(null)); }, []);
+
+  useEffect(() => {
+    // Chi e' gia' dentro il benvenuto lo ha gia' avuto, o e' arrivato prima
+    // che esistesse: in nessuno dei due casi va mostrato adesso.
+    if (!welcome) markWelcomeSeen();
+  }, [welcome]);
+
+  const closeWelcome = useCallback((thenSignIn: boolean) => {
+    markWelcomeSeen();
+    setWelcome(false);
+    if (thenSignIn) setSigningIn(true);
+  }, []);
 
   const patch = useCallback(
     (p: Partial<JobParams>) => setParams((old) => ({ ...old, ...p })),
@@ -133,6 +153,13 @@ export default function App() {
 
   return (
     <div className="shell">
+      {welcome && limits && (
+        <Welcome
+          limits={limits}
+          onStart={() => closeWelcome(false)}
+          onSignIn={() => closeWelcome(true)}
+        />
+      )}
       {signingIn && (
         <SignIn
           onCancel={() => setSigningIn(false)}
@@ -222,8 +249,8 @@ export default function App() {
             {/* Il numero viene dalla quota vera: scritto a mano invecchiava a
                 ogni cambio di piano, e prima diceva "5 per hour" quando erano
                 gia' diventate 2 al giorno. */}
-            Draft resolution{quota && quota.limit != null
-              && ` · ${quota.limit} generations per 24h`}
+            Draft resolution{quota && quota.limit != null && limits
+              && ` · ${plural(quota.limit, "generation")} ${windowLabel(limits.window_h)}`}
           </p>
         </div>
       </aside>

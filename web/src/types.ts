@@ -76,6 +76,22 @@ export const DEFAULT_PARAMS: JobParams = {
 };
 
 
+/**
+ * Le regole del servizio, servite dal server perche' non le riscriva il testo.
+ * Sono uguali per tutti: quanto ti resta *a te* sta in `Quota`.
+ */
+export interface Limits {
+  anon_generations: number;
+  user_generations: number;
+  window_h: number;
+  retention_h: number;
+  post_download_h: number;
+  max_upload_mb: number;
+  max_dim_mm: number;
+  max_res_cap: number;
+  modes: string[];
+}
+
 export interface Quota {
   plan: "anonymous" | "registered" | "unlimited";
   /** null quando il piano non ha tetto. */

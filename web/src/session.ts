@@ -17,6 +17,7 @@
 
 const SESSION_KEY = "mangarelief.session";
 const DEVICE_KEY = "mangarelief.device";
+const WELCOME_KEY = "mangarelief.welcome";
 /** Rinnova con un margine: un token che scade a meta' upload è un errore inutile. */
 const REFRESH_MARGIN_S = 120;
 
@@ -52,6 +53,25 @@ export function deviceId(): string {
     write(DEVICE_KEY, id);
   }
   return id;
+}
+
+/**
+ * Il benvenuto si legge una volta sola, e la versione dice quale.
+ *
+ * Un semplice "visto" non basterebbe: il giorno in cui cambiano le regole che
+ * racconta — quante prove, quanto restano i file — chi era gia' passato di
+ * qui non le leggerebbe mai. Alzare il numero lo rimostra a tutti, ed e'
+ * l'unica ragione per alzarlo: rifarlo per una virgola vuol dire interrompere
+ * chi sta lavorando.
+ */
+export const WELCOME_VERSION = 1;
+
+export function welcomeSeen(): boolean {
+  return (read<number>(WELCOME_KEY) ?? 0) >= WELCOME_VERSION;
+}
+
+export function markWelcomeSeen(): void {
+  write(WELCOME_KEY, WELCOME_VERSION);
 }
 
 export function getSession(): Session | null {

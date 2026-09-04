@@ -417,6 +417,33 @@ def auth_refresh(body: RefreshRequest):
                       email=user.get("email"), user_id=user["id"])
 
 
+@app.get("/api/limits")
+def read_limits():
+    """Le regole del servizio, in numeri.
+
+    Ogni numero che l'interfaccia dice sul servizio — quante generazioni, per
+    quanto restano i file, quanto puo' pesare un caricamento — e' in realta'
+    un'impostazione, e il testo che se lo riscrive dentro invecchia in
+    silenzio: il piede della pagina ha annunciato "5 per hour" per mesi dopo
+    che il limite era gia' diventato altro. Servirli da qui e' l'unico modo
+    perche' la pagina non possa contraddire il server.
+
+    Non dice nulla su chi sta chiedendo: e' la stessa risposta per tutti, e la
+    quota personale resta a `/api/quota`.
+    """
+    return {
+        "anon_generations": settings.quota_anon_daily,
+        "user_generations": settings.quota_user_daily,
+        "window_h": settings.quota_window_h,
+        "retention_h": settings.retention_hours,
+        "post_download_h": settings.post_download_hours,
+        "max_upload_mb": round(settings.max_upload_bytes / (1024 * 1024)),
+        "max_dim_mm": settings.anon_max_dim_mm,
+        "max_res_cap": settings.anon_max_res_cap,
+        "modes": list(settings.allowed_modes),
+    }
+
+
 @app.get("/api/quota")
 def read_quota(
     request: Request,

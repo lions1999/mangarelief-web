@@ -135,6 +135,16 @@ who tries twice and then signs up does not restart with the full allowance.
 ### `POST /api/auth/refresh`
 `{refresh_token}` → a fresh session.
 
+### `GET /api/limits`
+The rules of the service as numbers — how many generations per window, how long
+files live, how large an upload may be, the caps of the free tier. Public, and
+the same answer for everybody: what is left *for you* stays in `/api/quota`.
+
+It exists so the interface never states a limit of its own. Copy that repeats a
+setting goes stale silently, and the sidebar footer really did announce
+"5 per hour" long after the limit had become something else. The welcome screen
+and that footer both read their numbers from here.
+
 ### `POST /api/internal/cleanup`
 Deletes expired artifacts. Requires the `X-Cleanup-Token` header; called nightly
 by `.github/workflows/cleanup.yml`.
@@ -174,6 +184,13 @@ data resets that id, which is why a wider per-IP ceiling sits behind it.
 
 `GET /api/quota` reports what is left without consuming anything, so the page
 can say so before an upload rather than after.
+
+A first-time visitor is told all of this before loading anything: a welcome
+screen states the allowance, that the free generations already made from that
+browser transfer onto the account at sign-in (so signing in brings you to five
+in total, not seven), and that files are deleted on the retention schedule.
+Each of those is unpleasant to discover afterwards — the refusal mid-work, the
+counter that does not restart, the link from yesterday that no longer resolves.
 
 ### Plans
 
