@@ -478,6 +478,54 @@ something other than what production runs.
 policies are not here. It is PostgREST over Postgres, not Supabase: the job
 says our queries are right, not that the platform is.
 
+### The 3MF is a Bambu Studio project
+
+Every 3MF this produced used to reach the slicer as *geometry only*: the
+`custom_gcode_per_layer.xml` carrying the filament changes was written
+correctly and never opened. What the importer looks for is a metadata entry in
+`3D/3dmodel.model`:
+
+```xml
+<metadata name="BambuStudio:3mfVersion">1</metadata>
+```
+
+Without it `m_is_bbl_3mf` stays false and everything but the triangles is
+discarded. Three more things are needed, and none of them is documented — that
+half of the format is not. They were measured by opening real files in Bambu
+Studio 02.08.02.61, starting from one this code generated and Bambu then saved,
+used as the reference and compared entry by entry:
+
+- **`Application` must start with `BambuStudio-`.** The same file with
+  `MangaRelief-1.0.0` is refused. The version number after it never needs
+  updating: the comparison against the running application is commented out in
+  their source, and were it re-enabled it checks `file.maj() > app.maj()`, so a
+  low number always passes and chasing the latest release would be the one
+  choice that breaks for anyone who has not updated.
+- **`Metadata/project_settings.config` with five keys** — `version`, `from`,
+  `name`, `nozzle_diameter`, `filament_colour`. Empty or `{}` is not enough: it
+  breaks even a project written by Bambu Studio itself. Of the settings,
+  `nozzle_diameter` is the indispensable one; the same file with
+  `printer_technology` in its place is refused.
+- **The geometry in its own file** under `3D/Objects/`, referenced by `p:path`,
+  with the `.rels` that links them.
+
+Five keys is the minimum found by bisection, and deliberately not one more:
+this ships nobody's print profile. The price is the "custom preset" dialog on
+open, which comes from declaring a nozzle with no profile to belong to. It is
+not a false warning and it cannot be removed without giving up the colour
+changes, so the page says it will appear.
+
+`filament_colour` is the mode's own palette, base first and ink last: one
+filament per colour, and one change fewer than filaments.
+
+**Known defect:** the object does not land centred on the plate. Two different
+layouts — mesh at the origin with the pose in the build item, and mesh centred
+the way Bambu writes it — give the identical result, so the transform we write
+is not what places it. One click on auto-arrange fixes it.
+
+`tests/tremmeffe_bambu.py` in the desktop repo holds all of this. Every
+assertion there cost a round of opening a real file.
+
 ### Storage
 
 `scripts/check_storage.py` exercises the real bucket under a prefix of its own

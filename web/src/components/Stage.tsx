@@ -225,6 +225,18 @@ export default function Stage({
                     print. The plain STL does not carry them, so pause at each
                     height yourself.
                   </p>
+                  {/* Due cose che chi apre il file incontra davvero, e che
+                      sorprendono se non le si dice prima. L'avviso e' il prezzo
+                      dei cambi colore: per essere letti dobbiamo dichiarare un
+                      ugello, e un'impostazione di stampante senza un profilo a
+                      cui appartenga Bambu la segnala — giustamente. */}
+                  <p className="hint">
+                    Bambu Studio will ask you to confirm a custom preset when it
+                    opens: that is this file declaring a 0.4 nozzle, which is
+                    what makes the colour changes readable at all. Say yes. The
+                    model lands off to one side of the plate — one click on
+                    auto-arrange centres it.
+                  </p>
                 </div>
               )}
 
