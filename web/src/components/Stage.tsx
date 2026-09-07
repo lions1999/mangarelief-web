@@ -230,11 +230,28 @@ export default function Stage({
                       dei cambi colore: per essere letti dobbiamo dichiarare un
                       ugello, e un'impostazione di stampante senza un profilo a
                       cui appartenga Bambu la segnala — giustamente. */}
+                  {/* Tre cose che chi apre il file incontra davvero. La
+                      seconda non e' un dettaglio: un progetto 3MF porta con se'
+                      un processo di stampa, e il nostro dichiara solo cio' che
+                      riguarda quest'oggetto — tutto il resto prende i valori di
+                      fabbrica, temperatura compresa. Non e' aggirabile: ogni
+                      chiave in piu' sarebbe un'altra impostazione nostra al
+                      posto della sua. Dirlo qui costa tre righe; scoprirlo
+                      stampando costa una bobina. */}
                   <p className="hint">
-                    Bambu Studio will ask you to confirm a custom preset when it
-                    opens: that is this file declaring a 0.4 nozzle, which is
-                    what makes the colour changes readable at all. Say yes. The
-                    model lands off to one side of the plate — one click on
+                    Opening it, Bambu Studio asks you to confirm a custom preset
+                    — that is this file declaring a 0.4 nozzle, which is what
+                    makes the colour changes readable at all. Say yes.
+                  </p>
+                  <p className="hint warn">
+                    Then pick your own profile under <strong>Process</strong>.
+                    A project carries print settings with it, and this one only
+                    declares what belongs to the model: everything else falls
+                    back to factory values, nozzle temperature included. Your
+                    profile restores them, and the colour changes stay.
+                  </p>
+                  <p className="hint">
+                    The model lands off to one side of the plate — one click on
                     auto-arrange centres it.
                   </p>
                 </div>

@@ -518,6 +518,23 @@ changes, so the page says it will appear.
 `filament_colour` is the mode's own palette, base first and ink last: one
 filament per colour, and one change fewer than filaments.
 
+**What it costs.** A 3MF project carries a print process with it, and there is
+no way to say "keep yours": Bambu builds a new one named after the file, and
+every key this does not declare takes a factory value — nozzle temperature and
+speeds included. Visible proof is `print_settings_id`: slice and save the old
+geometry-only file and it stays `0.20mm Standard @BBL A1`; do the same with
+this one and it becomes `(roger_3D_1.3mf)`.
+
+Declaring more keys does not fix it, it makes it worse: each one is another of
+our values replacing one of theirs. So this declares only what belongs to the
+model — nozzle, filament colours, layer height, and `skirt_loops: 0` — and the
+page tells whoever downloads it to pick their own profile under Process, which
+restores everything else at once.
+
+`layer_height` is there for correctness, not taste: the colour-change heights
+are computed from it, and a different value drops them inside a layer instead
+of on its boundary.
+
 **Known defect:** the object does not land centred on the plate. Two different
 layouts — mesh at the origin with the pose in the build item, and mesh centred
 the way Bambu writes it — give the identical result, so the transform we write
